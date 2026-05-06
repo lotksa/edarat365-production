@@ -63,8 +63,18 @@ class OtpService
         if ($otp->channel === self::CHANNEL_EMAIL) {
             $key = $otp->purpose === self::PURPOSE_PASSWORD_RESET ? 'password_reset' : 'verification';
             $tpl = $templates[$key] ?? $this->defaultMailTemplates()[$key];
+            $branding = Setting::getByKey('mail_branding', $this->defaultMailBranding());
+            $branding = array_replace($this->defaultMailBranding(), is_array($branding) ? $branding : []);
+
+            $codeVars = $vars;
+            $codeVars['{{code}}'] = '<strong style="font-size:32px;font-weight:800;letter-spacing:10px;color:'
+                . htmlspecialchars($branding['code_color'], ENT_QUOTES) . ';background:'
+                . htmlspecialchars($branding['code_bg'], ENT_QUOTES) . ';padding:14px 22px;border-radius:10px;display:inline-block;direction:ltr;">'
+                . htmlspecialchars((string) ($vars['{{code}}'] ?? ''), ENT_QUOTES) . '</strong>';
+
             $subject = strtr($tpl['subject'] ?? '', $vars);
-            $body = strtr($tpl['body'] ?? '', $vars);
+            $innerBody = strtr($tpl['body'] ?? '', $codeVars);
+            $body = $this->renderBrandedMail($innerBody, $branding);
 
             $sent = $this->sendEmail($otp->identifier, $subject, $body);
 
@@ -92,29 +102,72 @@ class OtpService
         return [
             'verification' => [
                 'subject' => 'رمز التحقق - {{app_name}}',
-                'body' => "<div style=\"direction:rtl;font-family:Tajawal,Arial,sans-serif;background:#f8fafc;padding:24px;\">"
-                    . "<div style=\"max-width:560px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;\">"
-                    . "<div style=\"background:#021B4A;color:#fff;padding:20px 24px;\"><h2 style=\"margin:0;font-size:18px;\">{{app_name}}</h2></div>"
-                    . "<div style=\"padding:28px 24px;color:#1e293b;\">"
-                    . "<p style=\"margin:0 0 12px;\">مرحباً {{name}},</p>"
-                    . "<p style=\"margin:0 0 18px;\">رمز التحقق الخاص بك لتسجيل الدخول هو:</p>"
-                    . "<div style=\"text-align:center;font-size:32px;font-weight:800;letter-spacing:10px;color:#021B4A;background:#f1f5f9;padding:16px;border-radius:10px;margin:18px 0;\">{{code}}</div>"
-                    . "<p style=\"margin:0;color:#64748b;font-size:14px;\">صالح لمدة {{minutes}} دقيقة. إذا لم تطلب هذا الرمز، يمكنك تجاهل هذه الرسالة.</p>"
-                    . "</div></div></div>",
+                'body' => '<p style="margin:0 0 12px;">مرحباً {{name}}،</p>'
+                    . '<p style="margin:0 0 18px;">رمز التحقق الخاص بك لتسجيل الدخول هو:</p>'
+                    . '<div style="text-align:center;margin:22px 0;">{{code}}</div>'
+                    . '<p style="margin:0;color:#64748b;font-size:14px;">صالح لمدة {{minutes}} دقيقة. إذا لم تطلب هذا الرمز يمكنك تجاهل الرسالة.</p>',
             ],
             'password_reset' => [
                 'subject' => 'إعادة تعيين كلمة المرور - {{app_name}}',
-                'body' => "<div style=\"direction:rtl;font-family:Tajawal,Arial,sans-serif;background:#f8fafc;padding:24px;\">"
-                    . "<div style=\"max-width:560px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;\">"
-                    . "<div style=\"background:#021B4A;color:#fff;padding:20px 24px;\"><h2 style=\"margin:0;font-size:18px;\">{{app_name}}</h2></div>"
-                    . "<div style=\"padding:28px 24px;color:#1e293b;\">"
-                    . "<p style=\"margin:0 0 12px;\">مرحباً {{name}},</p>"
-                    . "<p style=\"margin:0 0 18px;\">رمز إعادة تعيين كلمة المرور:</p>"
-                    . "<div style=\"text-align:center;font-size:32px;font-weight:800;letter-spacing:10px;color:#dc2626;background:#fef2f2;padding:16px;border-radius:10px;margin:18px 0;\">{{code}}</div>"
-                    . "<p style=\"margin:0;color:#64748b;font-size:14px;\">صالح لمدة {{minutes}} دقيقة. إذا لم تطلب إعادة التعيين، تجاهل هذه الرسالة.</p>"
-                    . "</div></div></div>",
+                'body' => '<p style="margin:0 0 12px;">مرحباً {{name}}،</p>'
+                    . '<p style="margin:0 0 18px;">رمز إعادة تعيين كلمة المرور:</p>'
+                    . '<div style="text-align:center;margin:22px 0;">{{code}}</div>'
+                    . '<p style="margin:0;color:#64748b;font-size:14px;">صالح لمدة {{minutes}} دقيقة. إذا لم تطلب إعادة التعيين تجاهل الرسالة.</p>',
             ],
         ];
+    }
+
+    public function defaultMailBranding(): array
+    {
+        return [
+            'logo_url' => '/brand/edarat365-logo-white.svg',
+            'logo_variant' => 'white',
+            'logo_max_height' => 56,
+            'header_bg' => '#021B4A',
+            'body_bg' => '#f1f5f9',
+            'card_bg' => '#FFFFFF',
+            'border_color' => '#e5e7eb',
+            'text_color' => '#1e293b',
+            'muted_color' => '#64748b',
+            'accent_color' => '#021B4A',
+            'code_bg' => '#f1f5f9',
+            'code_color' => '#021B4A',
+            'footer_bg' => '#021B4A',
+            'footer_text_color' => '#FFFFFF',
+            'footer_text_ar' => 'جميع الحقوق محفوظة لمنصة إدارات 365 © 2026',
+            'footer_text_en' => '© 2026 Edarat365. All rights reserved.',
+        ];
+    }
+
+    private function renderBrandedMail(string $innerBody, array $b): string
+    {
+        $base = rtrim(config('app.url') ?: 'https://edarat365.lotksa.com', '/');
+        $logo = $b['logo_url'] ?? '/brand/edarat365-logo-white.svg';
+        if (!preg_match('~^https?://~i', $logo)) {
+            $logo = $base . (str_starts_with($logo, '/') ? '' : '/') . $logo;
+        }
+        $logoH = (int) ($b['logo_max_height'] ?? 56);
+        $footer = $b['footer_text_ar'] ?? 'جميع الحقوق محفوظة لمنصة إدارات 365';
+
+        $esc = static fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES);
+
+        return '<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"></head>'
+            . '<body style="margin:0;padding:0;background:' . $esc($b['body_bg']) . ';">'
+            . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:' . $esc($b['body_bg']) . ';padding:28px 12px;font-family:Tajawal,Segoe UI,Arial,sans-serif;">'
+            . '<tr><td align="center">'
+            . '<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:' . $esc($b['card_bg']) . ';border:1px solid ' . $esc($b['border_color']) . ';border-radius:16px;overflow:hidden;box-shadow:0 4px 18px rgba(2,27,74,0.06);">'
+            . '<tr><td align="center" style="background:' . $esc($b['header_bg']) . ';padding:28px 24px;">'
+            . '<img src="' . $esc($logo) . '" alt="Edarat365" height="' . $logoH . '" style="display:block;margin:0 auto;height:' . $logoH . 'px;width:auto;max-width:80%;" />'
+            . '</td></tr>'
+            . '<tr><td style="padding:30px 28px;color:' . $esc($b['text_color']) . ';font-size:15px;line-height:1.7;direction:rtl;text-align:right;">'
+            . $innerBody
+            . '</td></tr>'
+            . '<tr><td align="center" style="background:' . $esc($b['footer_bg']) . ';color:' . $esc($b['footer_text_color']) . ';padding:16px 24px;font-size:13px;">'
+            . $esc($footer)
+            . '</td></tr>'
+            . '</table>'
+            . '</td></tr></table>'
+            . '</body></html>';
     }
 
     public function defaultSmsTemplates(): array
