@@ -1,238 +1,186 @@
-# 🚀 دليل النشر على cPanel - Edarat365
+# 🚀 دليل النشر على cPanel عبر GitHub - Edarat365
 
-## 📦 محتويات الحزمة
+## 📍 معلومات المستودع
 
-```
-deploy-package/
-├── 1-public_html.zip         (0.88 MB) ← يُرفع لـ public_html
-├── 2-laravel-app.zip         (7.31 MB) ← يُرفع لمجلد آمن خارج public_html
-├── edarat365_database.sql    (1.2 MB)  ← يُستورد في MySQL
-└── DEPLOYMENT_GUIDE.md       ← هذا الملف
-```
-
-## 🏗️ المعمارية الاحترافية
-
-```
-/home/edarat/
-├── laravel-app/           ← الباك إند (محمي، خارج الويب)
-│   ├── app/
-│   ├── config/
-│   ├── routes/
-│   ├── vendor/
-│   ├── storage/
-│   └── .env              ← السر الكبير، لا يُكشف أبدا
-│
-└── public_html/           ← الواجهة العامة فقط
-    ├── index.html         ← Vue (الفرونت إند)
-    ├── assets/            ← Vue assets
-    ├── brand/             ← الشعارات
-    ├── .htaccess          ← SPA routing
-    └── api/               ← فقط نقطة دخول Laravel
-        ├── index.php      ← يستدعي laravel-app
-        ├── .htaccess
-        └── favicon.ico
-```
+- **GitHub Repo:** `lotksa/edarat365-production` (Private)
+- **Clone URL:** `https://github.com/lotksa/edarat365-production.git`
+- **Server cPanel:** `https://ls1ksa.lot-server.com:2083/`
+- **User:** `edarat`
 
 ---
 
-## 📋 الخطوات بالترتيب
+## 🎯 طريقة النشر الاحترافية: cPanel Git Version Control
 
-### 1️⃣ إنشاء قاعدة البيانات في cPanel
+> ✅ هذي أفضل طريقة - تسحب من GitHub مباشرة، وأي تحديث في المستقبل بضغطة زر.
 
-1. ادخل cPanel: `https://ls1ksa.lot-server.com:2083/`
-2. ابحث عن **MySQL Databases**
-3. أنشئ قاعدة بيانات جديدة:
-   - الاسم: `edarat365` (سيصبح: `edarat_edarat365`)
-4. أنشئ مستخدم جديد:
-   - اسم المستخدم: `edaratuser`
-   - كلمة مرور قوية (احفظها)
-5. **Add User to Database** → أعطِ المستخدم **ALL PRIVILEGES**
+### الخطوة 1: إنشاء Personal Access Token على GitHub
 
-سجّل هذه القيم:
+لأن المستودع **Private**، نحتاج Token للسحب:
+
+1. روح على: https://github.com/settings/tokens
+2. اضغط **Generate new token (classic)**
+3. الاسم: `cpanel-edarat-deploy`
+4. الصلاحيات: ✅ `repo` (كامل)
+5. اضغط **Generate token** ← انسخ التوكن
+
+### الخطوة 2: إنشاء Git Repo في cPanel
+
+1. سجّل دخول: https://ls1ksa.lot-server.com:2083/
+2. ابحث عن **"Git Version Control"** أو **"Git™ Version Control"**
+3. اضغط **Create**
+4. املأ:
+   - **Clone URL:** `https://USERNAME:TOKEN@github.com/lotksa/edarat365-production.git`
+     - استبدل `USERNAME` بـ `lotksa`
+     - استبدل `TOKEN` بالتوكن من الخطوة 1
+   - **Repository Path:** `/home/edarat/repositories/edarat365/`
+   - **Repository Name:** `edarat365`
+5. اضغط **Create**
+
+سيتم سحب المشروع تلقائيًا.
+
+### الخطوة 3: نشر الملفات تلقائيًا
+
+1. في cPanel Git → اضغط **Manage** بجانب المستودع
+2. روح لتبويب **Pull or Deploy**
+3. اضغط **Deploy HEAD Commit**
+4. الملف `.cpanel.yml` راح ينفذ تلقائيًا وينقل الملفات:
+   - `public_html/` ← لـ `/home/edarat/public_html/`
+   - `laravel-app/` ← لـ `/home/edarat/laravel-app/`
+
+---
+
+## 🗄️ الخطوة 4: إعداد قاعدة البيانات
+
+### إنشاء قاعدة بيانات
+
+1. cPanel → **MySQL Databases**
+2. أنشئ قاعدة: `edarat_main` (الاسم الكامل سيكون `edarat_edarat_main`)
+3. أنشئ مستخدم: `edarat_user` بكلمة سر قوية
+4. أعطِه **All Privileges** على القاعدة
+
+### استيراد البيانات
+
+1. cPanel → **phpMyAdmin**
+2. اختر قاعدة `edarat_edarat_main`
+3. اضغط **Import**
+4. ارفع: `/home/edarat/repositories/edarat365/database/edarat365.sql`
+5. اضغط **Go**
+
+---
+
+## 🔐 الخطوة 5: إعداد ملف `.env`
+
+1. cPanel → **File Manager** → روح لـ `/home/edarat/laravel-app/`
+2. افتح `.env` وعدّل:
+
+```ini
+APP_NAME=Edarat365
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://YOUR-DOMAIN.com
+
+DB_CONNECTION=mysql
+DB_HOST=localhost
+DB_PORT=3306
+DB_DATABASE=edarat_edarat_main
+DB_USERNAME=edarat_edarat_user
+DB_PASSWORD=YOUR_DB_PASSWORD
+
+SESSION_DRIVER=database
+CACHE_STORE=database
+QUEUE_CONNECTION=database
+
+FRONTEND_URL=https://YOUR-DOMAIN.com
+SANCTUM_STATEFUL_DOMAINS=YOUR-DOMAIN.com
+SESSION_DOMAIN=.YOUR-DOMAIN.com
 ```
-DB_DATABASE = edarat_edarat365
-DB_USERNAME = edarat_edaratuser
-DB_PASSWORD = <كلمة المرور التي أنشأتها>
-```
+
+3. **مهم جدًا**: ولّد APP_KEY عبر Terminal (إذا متاح) أو ضع قيمة base64 جاهزة
 
 ---
 
-### 2️⃣ استيراد قاعدة البيانات
+## ⚙️ الخطوة 6: ضبط الصلاحيات
 
-1. في cPanel ابحث عن **phpMyAdmin**
-2. اختر `edarat_edarat365` من اليسار
-3. تبويب **Import** → ارفع `edarat365_database.sql`
-4. اضغط **Go**
-
----
-
-### 3️⃣ رفع ملفات Laravel (المحمية)
-
-1. في cPanel ابحث عن **File Manager**
-2. اذهب إلى المسار الجذر: `/home/edarat/`
-3. اضغط **Upload** وارفع `2-laravel-app.zip`
-4. بعد الرفع، حدّد الملف واضغط **Extract**
-5. أعد تسمية المجلد المستخرج إلى: `laravel-app`
-6. ✅ تأكد المسار: `/home/edarat/laravel-app/`
-
-**المهم:** هذا المجلد يجب أن يكون **خارج** `public_html` تماما للأمان.
-
----
-
-### 4️⃣ تكوين ملف `.env`
-
-1. ادخل `/home/edarat/laravel-app/`
-2. حرّر ملف `.env` (Edit في File Manager)
-3. عدّل القيم التالية:
-
-```env
-APP_URL=https://YOUR_DOMAIN.com
-FRONTEND_URL=https://YOUR_DOMAIN.com
-
-DB_DATABASE=edarat_edarat365
-DB_USERNAME=edarat_edaratuser
-DB_PASSWORD=YOUR_DB_PASSWORD_FROM_STEP_1
-
-MAIL_HOST=mail.YOUR_DOMAIN.com
-MAIL_USERNAME=noreply@YOUR_DOMAIN.com
-MAIL_PASSWORD=YOUR_MAIL_PASSWORD
-MAIL_FROM_ADDRESS=noreply@YOUR_DOMAIN.com
-```
-
-4. **توليد APP_KEY**: ادخل **Terminal** في cPanel (إذا متاح) أو اطلب من الـ Support:
-```bash
-cd /home/edarat/laravel-app
-php artisan key:generate
-```
-
-أو ضع هذه القيمة المؤقتة (واطلب توليد جديد لاحقا):
-```
-APP_KEY=base64:VKxMONShL5dD0OeKFY8xaI5VpFotZoee+Isly+T/mtk=
-```
-
----
-
-### 5️⃣ رفع الفرونت إند والـ API entry point
-
-1. اذهب إلى `/home/edarat/public_html/`
-2. **احذف** أي ملفات افتراضية قديمة (مثل `index.html` التجريبي إذا موجود)
-3. ارفع `1-public_html.zip`
-4. **Extract** الملف
-5. ✅ تأكد إن المسار: `/home/edarat/public_html/index.html` موجود
-6. ✅ تأكد إن المسار: `/home/edarat/public_html/api/index.php` موجود
-
----
-
-### 6️⃣ ضبط الصلاحيات
-
-في File Manager، حدّد المجلدات التالية وضع صلاحية:
-
-| المجلد | الصلاحية |
-|--------|----------|
-| `/home/edarat/laravel-app/storage/` | **775** (recursive) |
-| `/home/edarat/laravel-app/bootstrap/cache/` | **775** (recursive) |
-| `/home/edarat/public_html/` | **755** |
-| `/home/edarat/laravel-app/.env` | **600** |
-
----
-
-### 7️⃣ ربط الدومين الفرعي
-
-في cPanel:
-
-1. ابحث عن **Subdomains** أو **Domains**
-2. أضف الدومين الفرعي (مثلا: `edarat365.lotksa.com`)
-3. **Document Root** يجب أن يكون: `/home/edarat/public_html`
-
----
-
-### 8️⃣ إعداد SSL في Cloudflare
-
-1. ادخل Cloudflare → اختر الدومين
-2. **DNS** → أضف A Record:
-   - Type: A
-   - Name: `edarat365` (أو الفرعي)
-   - IPv4: IP السيرفر
-   - Proxy: 🟠 Proxied
-3. **SSL/TLS** → اختر **Full (strict)**
-4. **Edge Certificates** → فعّل **Always Use HTTPS**
-
----
-
-### 9️⃣ تشغيل أوامر Laravel النهائية
-
-عبر **Terminal** في cPanel أو **Cron Jobs**:
+من **File Manager** أو **Terminal**:
 
 ```bash
-cd /home/edarat/laravel-app
-
-# تحسين الأداء
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
-
-# (اختياري) تنظيف الكاش القديم
-php artisan cache:clear
+chmod -R 755 /home/edarat/laravel-app
+chmod -R 775 /home/edarat/laravel-app/storage
+chmod -R 775 /home/edarat/laravel-app/bootstrap/cache
+chmod 600 /home/edarat/laravel-app/.env
 ```
 
 ---
 
-### 🔟 إعداد Cron Jobs (للمهام المجدولة)
+## 🌐 الخطوة 7: ربط الدومين عبر Cloudflare
 
-في cPanel → **Cron Jobs**، أضف:
+### في Cloudflare Dashboard:
+
+1. أضف الدومين أو الساب دومين
+2. **DNS Records:**
+   - Type: `A`
+   - Name: `@` (أو الساب دومين)
+   - Content: IP السيرفر (من cPanel → Server Information)
+   - Proxy: 🟠 Proxied (سحاب برتقالي)
+
+3. **SSL/TLS:**
+   - SSL Mode: **Full (strict)** أو **Full**
+
+### في cPanel:
+
+1. **Domains** → أضف الدومين
+2. **SSL/TLS** → فعّل Let's Encrypt إذا متاح
+
+---
+
+## ✅ الخطوة 8: اختبار النشر
+
+افتح في المتصفح:
+- `https://YOUR-DOMAIN.com` ← يجب أن تظهر صفحة الدخول
+- `https://YOUR-DOMAIN.com/api/health` ← يجب أن ترجع `{"status":"ok"}`
+
+---
+
+## 🔄 التحديثات المستقبلية (سهلة جدًا)
+
+عند أي تحديث في الكود:
 
 ```bash
-* * * * * cd /home/edarat/laravel-app && php artisan schedule:run >> /dev/null 2>&1
+# في جهازك المحلي:
+cd deploy-package
+git add -A
+git commit -m "Update X"
+git push
 ```
+
+ثم في cPanel:
+1. Git Version Control → Manage → **Update from Remote**
+2. اضغط **Deploy HEAD Commit**
+
+✨ تم! المشروع محدّث على السيرفر.
 
 ---
 
-## ✅ التحقق من نجاح النشر
+## ⚠️ ملاحظات مهمة
 
-1. افتح: `https://YOUR_DOMAIN.com` → يجب أن تظهر صفحة تسجيل الدخول
-2. افتح: `https://YOUR_DOMAIN.com/api/v1/health` (أو أي endpoint) → يجب أن يرجع JSON
-3. سجّل دخول بحساب admin
-4. تأكد من تحميل البيانات
-
----
-
-## 🔐 معلومات تسجيل الدخول الافتراضية
-
-استخدم نفس بيانات الـ admin من قاعدة البيانات الحالية، أو أنشئ حساب جديد:
-
-```bash
-cd /home/edarat/laravel-app
-php artisan tinker
-> \App\Models\User::create(['name' => 'Admin', 'email' => 'admin@edarat.com', 'password' => bcrypt('YourStrongPassword')]);
-```
+- ✅ المشروع **محمي من فهرسة محركات البحث** (robots.txt + meta tags + headers)
+- ✅ Vendor مرفوع مع المشروع - لا تحتاج composer install على السيرفر
+- ✅ Frontend مبني (dist) - لا تحتاج npm build على السيرفر
+- ⚠️ التحديثات تتطلب فقط: git push من جهازك → Deploy في cPanel
 
 ---
 
 ## 🆘 استكشاف الأخطاء
 
-### خطأ 500 على API:
-- تحقق من `APP_KEY` في `.env`
+### خطأ 500 على الـ API:
+- تحقق من `.env` (DB credentials)
 - تحقق من صلاحيات `storage/` و `bootstrap/cache/`
-- شاهد اللوقات في `/home/edarat/laravel-app/storage/logs/laravel.log`
+- فحص اللوقات: `/home/edarat/laravel-app/storage/logs/laravel.log`
 
-### الفرونت إند يعرض 404:
-- تأكد من وجود `.htaccess` في `public_html/`
-- تحقق من تفعيل `mod_rewrite` على السيرفر
-
-### قاعدة البيانات لا تتصل:
-- تأكد من اسم القاعدة (يبدأ بـ `edarat_`)
-- تأكد من كلمة المرور
-- جرّب `DB_HOST=127.0.0.1` بدلا من `localhost`
+### الفرونت يعمل لكن الـ API لا:
+- تحقق من `.htaccess` في `public_html/api/`
+- تحقق من مسار `index.php` يشير لـ `../../laravel-app`
 
 ### CORS errors:
-- تأكد إن `FRONTEND_URL` في `.env` يطابق الدومين الفعلي
-- أعد تشغيل: `php artisan config:cache`
-
----
-
-## 📞 ملاحظات مهمة
-
-- **النسخ الاحتياطي**: عبر cPanel → Backup يوميا
-- **الأمان**: لا تشارك ملف `.env` أبدا
-- **التحديثات**: عند رفع نسخة جديدة، استخدم نفس الهيكل
-- **الفهرسة**: المشروع محمي من محركات البحث (5 طبقات)
+- تحقق من `FRONTEND_URL` في `.env`
+- تحقق من `SESSION_DOMAIN` يبدأ بـ `.`
