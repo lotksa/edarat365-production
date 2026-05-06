@@ -13,6 +13,8 @@ REPO_DIR="$(pwd)"
 
 echo "=== [1/8] Setting up .env file ==="
 cp -f "$REPO_DIR/laravel-app/.env" "$LARAVEL_APP/.env"
+# CRITICAL: Remove .env.production - Laravel 11 prefers it over .env when APP_ENV=production
+rm -f "$LARAVEL_APP/.env.production" "$LARAVEL_APP/.env.production.example"
 
 # Generate APP_KEY
 APP_KEY="base64:$(openssl rand -base64 32)"
