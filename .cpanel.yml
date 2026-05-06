@@ -10,4 +10,4 @@ deployment:
     - /bin/chmod -R 755 $LARAVEL_APP
     - /bin/chmod -R 775 $LARAVEL_APP/storage
     - /bin/chmod -R 775 $LARAVEL_APP/bootstrap/cache
-    - /bin/chmod 600 $LARAVEL_APP/.env
+    - /bin/chmod +x setup.sh
