@@ -5,9 +5,17 @@ deployment:
     - export PUBLIC_HTML=$HOME/public_html/
     - export LARAVEL_APP=$HOME/laravel-app/
     - /bin/mkdir -p $LARAVEL_APP
+    - /bin/mkdir -p $HOME/.deploy_backup
+    - if [ -f "$LARAVEL_APP/.env" ]; then /bin/cp "$LARAVEL_APP/.env" "$HOME/.deploy_backup/.env"; fi
     - /bin/cp -R laravel-app/. $LARAVEL_APP
+    - if [ -f "$HOME/.deploy_backup/.env" ]; then /bin/cp "$HOME/.deploy_backup/.env" "$LARAVEL_APP/.env"; fi
+    - /bin/rm -f $LARAVEL_APP/.env.production
     - /bin/cp -R public_html/. $PUBLIC_HTML
     - /bin/chmod -R 755 $LARAVEL_APP
     - /bin/chmod -R 775 $LARAVEL_APP/storage
     - /bin/chmod -R 775 $LARAVEL_APP/bootstrap/cache
     - /bin/chmod +x setup.sh
+    - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan config:clear || true
+    - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan route:clear || true
+    - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan cache:clear || true
+    - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan view:clear || true
