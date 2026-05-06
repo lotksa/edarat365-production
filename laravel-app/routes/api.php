@@ -35,6 +35,9 @@ use App\Http\Controllers\Api\CasePermissionController;
 use App\Http\Controllers\Api\CaseMessageController;
 use App\Http\Controllers\Api\CaseReminderController;
 use App\Http\Controllers\Api\MaintenanceController;
+use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\Api\RoleController;
+use App\Http\Controllers\Api\PermissionController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -187,6 +190,27 @@ Route::prefix('v1')->group(function () {
 
     // Activity Logs
     Route::get('/activity-logs', [ActivityLogController::class, 'index']);
+
+    // Users Management
+    Route::get('/users/stats', [UserController::class, 'stats']);
+    Route::get('/users', [UserController::class, 'index']);
+    Route::post('/users', [UserController::class, 'store']);
+    Route::post('/users/bulk-delete', [UserController::class, 'bulkDelete']);
+    Route::get('/users/{id}', [UserController::class, 'show']);
+    Route::put('/users/{id}', [UserController::class, 'update']);
+    Route::delete('/users/{id}', [UserController::class, 'destroy']);
+    Route::patch('/users/{id}/toggle-status', [UserController::class, 'toggleStatus']);
+
+    // Roles & Permissions
+    Route::get('/roles/stats', [RoleController::class, 'stats']);
+    Route::get('/roles', [RoleController::class, 'index']);
+    Route::post('/roles', [RoleController::class, 'store']);
+    Route::get('/roles/{id}', [RoleController::class, 'show']);
+    Route::put('/roles/{id}', [RoleController::class, 'update']);
+    Route::delete('/roles/{id}', [RoleController::class, 'destroy']);
+    Route::put('/roles/{id}/permissions', [RoleController::class, 'syncPermissions']);
+
+    Route::get('/permissions', [PermissionController::class, 'index']);
 
     // Tenants
     Route::get('/tenants', [TenantController::class, 'index']);

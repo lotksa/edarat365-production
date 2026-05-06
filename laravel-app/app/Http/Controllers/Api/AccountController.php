@@ -11,9 +11,17 @@ class AccountController extends Controller
 {
     public function me(Request $request): JsonResponse
     {
-        return response()->json([
-            'data' => $request->user(),
-        ]);
+        $user = $request->user();
+        if ($user) {
+            $user->load('userRole.permissions');
+        }
+        $userData = $user ? $user->toArray() : null;
+        if ($user) {
+            $userData['permissions'] = $user->permissionKeys();
+            $userData['is_super_admin'] = $user->isSuperAdmin();
+            $userData['role_info'] = $user->userRole;
+        }
+        return response()->json(['data' => $userData]);
     }
 
     public function updateProfile(Request $request): JsonResponse

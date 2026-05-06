@@ -24,10 +24,16 @@ class DatabaseSeeder extends Seeder
 
     public function run(): void
     {
+        $this->call(PermissionSeeder::class);
+
+        $superAdminRole = \App\Models\Role::where('key', 'super_admin')->first();
+
         $user = User::query()->updateOrCreate(['email' => 'admin@edarat365.com'], [
             'name' => 'Edarat Admin',
             'phone' => '0590592324',
             'role' => 'admin',
+            'role_id' => $superAdminRole?->id,
+            'is_active' => true,
             'avatar_url' => 'https://i.pravatar.cc/160?img=12',
             'password' => Hash::make('password123'),
         ]);
