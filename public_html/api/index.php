@@ -1,32 +1,17 @@
 <?php
-
-use Illuminate\Foundation\Application;
-use Illuminate\Http\Request;
-
 define('LARAVEL_START', microtime(true));
 
-/*
-|--------------------------------------------------------------------------
-| cPanel Deployment - Edarat365
-|--------------------------------------------------------------------------
-| Laravel app folder is located OUTSIDE public_html for security.
-| This file is the only entry point exposed to the web.
-*/
+// Fix REQUEST_URI for Laravel routing
+// Laravel calculates path relative to SCRIPT_NAME, but we want it to see full URI
+$_SERVER['SCRIPT_NAME'] = '/index.php';
+$_SERVER['PHP_SELF'] = '/index.php';
 
-$laravelPath = realpath(__DIR__ . '/../../laravel-app');
-
-if ($laravelPath === false || !is_dir($laravelPath)) {
-    http_response_code(500);
-    exit('Configuration Error: Laravel application path not found.');
-}
-
-if (file_exists($maintenance = $laravelPath.'/storage/framework/maintenance.php')) {
+if (file_exists($maintenance = __DIR__.'/../../laravel-app/storage/framework/maintenance.php')) {
     require $maintenance;
 }
 
-require $laravelPath.'/vendor/autoload.php';
+require __DIR__.'/../../laravel-app/vendor/autoload.php';
 
-/** @var Application $app */
-$app = require_once $laravelPath.'/bootstrap/app.php';
+$app = require_once __DIR__.'/../../laravel-app/bootstrap/app.php';
 
-$app->handleRequest(Request::capture());
+$app->handleRequest(Illuminate\Http\Request::capture());

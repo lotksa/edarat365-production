@@ -106,6 +106,11 @@ cat > "$PUBLIC_HTML/api/index.php" << 'APIPHP'
 <?php
 define('LARAVEL_START', microtime(true));
 
+// Fix REQUEST_URI for Laravel routing
+// Laravel calculates path relative to SCRIPT_NAME, but we want it to see full URI
+$_SERVER['SCRIPT_NAME'] = '/index.php';
+$_SERVER['PHP_SELF'] = '/index.php';
+
 if (file_exists($maintenance = __DIR__.'/../../laravel-app/storage/framework/maintenance.php')) {
     require $maintenance;
 }
@@ -143,8 +148,8 @@ echo "[OK] Migrations done"
 
 echo "=== [8/8] Final permissions ==="
 chmod -R 755 "$LARAVEL_APP"
-chmod -R 775 "$LARAVEL_APP/storage"
-chmod -R 775 "$LARAVEL_APP/bootstrap/cache"
+chmod -R 777 "$LARAVEL_APP/storage"
+chmod -R 777 "$LARAVEL_APP/bootstrap/cache"
 chmod 600 "$LARAVEL_APP/.env"
 echo "[OK] Permissions set"
 
