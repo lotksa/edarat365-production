@@ -1,0 +1,13 @@
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/$USER/
+    - export PUBLIC_HTML=/home/$USER/public_html/
+    - export LARAVEL_APP=/home/$USER/laravel-app/
+    - /bin/mkdir -p $LARAVEL_APP
+    - /bin/cp -R laravel-app/. $LARAVEL_APP
+    - /bin/cp -R public_html/. $PUBLIC_HTML
+    - /bin/chmod -R 755 $LARAVEL_APP
+    - /bin/chmod -R 775 $LARAVEL_APP/storage
+    - /bin/chmod -R 775 $LARAVEL_APP/bootstrap/cache
+    - /bin/chmod 600 $LARAVEL_APP/.env
