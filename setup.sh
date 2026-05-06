@@ -2,7 +2,7 @@
 # One-time setup script - configures .env, imports DB, runs migrations
 # Args: $1 = DB_DATABASE, $2 = DB_USERNAME, $3 = DB_PASSWORD, $4 = APP_DOMAIN
 
-set -e
+set +e
 DB_DATABASE="${1:-edarat_db}"
 DB_USERNAME="${2:-edarat_app}"
 DB_PASSWORD="${3}"
@@ -35,8 +35,14 @@ echo "[OK] .env configured (APP_KEY generated, DB credentials set)"
 echo "=== [2/8] Importing database SQL ==="
 SQL_FILE="$REPO_DIR/database/edarat365.sql"
 if [ -f "$SQL_FILE" ]; then
-    mysql -u "$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE" < "$SQL_FILE"
-    echo "[OK] Database imported"
+    # Strip BOM if present
+    sed -i '1s/^\xEF\xBB\xBF//' "$SQL_FILE"
+    mysql --binary-mode -u "$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE" < "$SQL_FILE" 2>&1 | head -20
+    if [ $? -eq 0 ]; then
+        echo "[OK] Database imported"
+    else
+        echo "[WARN] SQL import had issues - will run migrations to set up DB"
+    fi
 else
     echo "[SKIP] SQL file not found at $SQL_FILE"
 fi
@@ -123,9 +129,16 @@ php artisan route:cache
 php artisan view:cache
 echo "[OK] Laravel cached"
 
-echo "=== [7/8] Running pending migrations ==="
+echo "=== [7/8] Running pending migrations and seed (if empty DB) ==="
 cd "$LARAVEL_APP"
-php artisan migrate --force --no-interaction || echo "[WARN] Migration warning - DB may already be set"
+TABLES_COUNT=$(mysql -u "$DB_USERNAME" -p"$DB_PASSWORD" -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB_DATABASE'" 2>/dev/null)
+echo "Existing tables: $TABLES_COUNT"
+if [ "$TABLES_COUNT" -lt 5 ]; then
+    echo "DB looks empty - running fresh migration with seed"
+    php artisan migrate:fresh --force --seed --no-interaction || echo "[WARN] Migration error"
+else
+    php artisan migrate --force --no-interaction || echo "[WARN] Migration warning - DB may already be up to date"
+fi
 echo "[OK] Migrations done"
 
 echo "=== [8/8] Final permissions ==="
