@@ -46,6 +46,8 @@ Route::prefix('v1')->group(function () {
     Route::post('/auth/login', [AuthController::class, 'login']);
     Route::post('/auth/request-otp', [AuthController::class, 'requestOtp']);
     Route::post('/auth/verify-otp', [AuthController::class, 'verifyOtp']);
+    Route::post('/auth/forgot-password', [AuthController::class, 'requestOtp']);
+    Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::get('/auth/me', [AccountController::class, 'me']);

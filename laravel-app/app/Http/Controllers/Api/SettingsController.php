@@ -30,6 +30,9 @@ class SettingsController extends Controller
         'invoice_settings',
         'search_settings',
         'facility_settings',
+        'mail_templates',
+        'sms_templates',
+        'auth_settings',
     ];
 
     private const DEFAULTS = [
@@ -421,6 +424,32 @@ class SettingsController extends Controller
                 'legal_cases' => true,
             ],
             'ai_enabled' => false,
+        ],
+        'auth_settings' => [
+            'default_login_method' => 'email',
+            'allow_email_login' => true,
+            'allow_phone_login' => true,
+            'otp_length' => 6,
+            'otp_ttl_minutes' => 10,
+            'password_reset_enabled' => true,
+        ],
+        'mail_templates' => [
+            'verification' => [
+                'subject' => 'رمز التحقق - {{app_name}}',
+                'body' => '<div style="direction:rtl;font-family:Tajawal,Arial,sans-serif;background:#f8fafc;padding:24px;"><div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;"><div style="background:#021B4A;color:#fff;padding:20px 24px;"><h2 style="margin:0;font-size:18px;">{{app_name}}</h2></div><div style="padding:28px 24px;color:#1e293b;"><p style="margin:0 0 12px;">مرحباً {{name}},</p><p style="margin:0 0 18px;">رمز التحقق الخاص بك لتسجيل الدخول هو:</p><div style="text-align:center;font-size:32px;font-weight:800;letter-spacing:10px;color:#021B4A;background:#f1f5f9;padding:16px;border-radius:10px;margin:18px 0;">{{code}}</div><p style="margin:0;color:#64748b;font-size:14px;">صالح لمدة {{minutes}} دقيقة. إذا لم تطلب هذا الرمز يمكنك تجاهل الرسالة.</p></div></div></div>',
+            ],
+            'password_reset' => [
+                'subject' => 'إعادة تعيين كلمة المرور - {{app_name}}',
+                'body' => '<div style="direction:rtl;font-family:Tajawal,Arial,sans-serif;background:#f8fafc;padding:24px;"><div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;"><div style="background:#021B4A;color:#fff;padding:20px 24px;"><h2 style="margin:0;font-size:18px;">{{app_name}}</h2></div><div style="padding:28px 24px;color:#1e293b;"><p style="margin:0 0 12px;">مرحباً {{name}},</p><p style="margin:0 0 18px;">رمز إعادة تعيين كلمة المرور:</p><div style="text-align:center;font-size:32px;font-weight:800;letter-spacing:10px;color:#dc2626;background:#fef2f2;padding:16px;border-radius:10px;margin:18px 0;">{{code}}</div><p style="margin:0;color:#64748b;font-size:14px;">صالح لمدة {{minutes}} دقيقة. إذا لم تطلب إعادة التعيين تجاهل الرسالة.</p></div></div></div>',
+            ],
+        ],
+        'sms_templates' => [
+            'verification' => [
+                'body' => 'رمز التحقق الخاص بك في {{app_name}}: {{code}} (صالح {{minutes}} دقيقة)',
+            ],
+            'password_reset' => [
+                'body' => 'رمز إعادة تعيين كلمة المرور في {{app_name}}: {{code}} (صالح {{minutes}} دقيقة)',
+            ],
         ],
         'facility_settings' => [
             'facility_types' => [
