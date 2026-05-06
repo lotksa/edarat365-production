@@ -1,9 +1,9 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/$USER/
-    - export PUBLIC_HTML=/home/$USER/public_html/
-    - export LARAVEL_APP=/home/$USER/laravel-app/
+    - export DEPLOYPATH=$HOME/
+    - export PUBLIC_HTML=$HOME/public_html/
+    - export LARAVEL_APP=$HOME/laravel-app/
     - /bin/mkdir -p $LARAVEL_APP
     - /bin/cp -R laravel-app/. $LARAVEL_APP
     - /bin/cp -R public_html/. $PUBLIC_HTML
