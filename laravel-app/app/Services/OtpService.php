@@ -120,7 +120,7 @@ class OtpService
     public function defaultMailBranding(): array
     {
         return [
-            'logo_url' => '/brand/edarat365-logo-white.svg',
+            'logo_url' => '/brand/logo-dark.png',
             'logo_variant' => 'white',
             'logo_max_height' => 56,
             'header_bg' => '#021B4A',
@@ -142,7 +142,7 @@ class OtpService
     private function renderBrandedMail(string $innerBody, array $b): string
     {
         $base = rtrim(config('app.url') ?: 'https://edarat365.lotksa.com', '/');
-        $logo = $b['logo_url'] ?? '/brand/edarat365-logo-white.svg';
+        $logo = $b['logo_url'] ?? '/brand/logo-dark.png';
         if (!preg_match('~^https?://~i', $logo)) {
             $logo = $base . (str_starts_with($logo, '/') ? '' : '/') . $logo;
         }

@@ -451,7 +451,7 @@ class SettingsController extends Controller
             ],
         ],
         'mail_branding' => [
-            'logo_url' => '/brand/edarat365-logo-white.svg',
+            'logo_url' => '/brand/logo-dark.png',
             'logo_variant' => 'white',
             'logo_max_height' => 56,
             'header_bg' => '#021B4A',
