@@ -11,15 +11,26 @@ deployment:
     - if [ -f "$HOME/.deploy_backup/.env" ]; then /bin/cp "$HOME/.deploy_backup/.env" "$LARAVEL_APP/.env"; fi
     - /bin/rm -f $LARAVEL_APP/.env.production
     - /bin/cp -R public_html/. $PUBLIC_HTML
-    - /bin/chmod -R 755 $LARAVEL_APP
-    - /bin/chmod -R 775 $LARAVEL_APP/storage
-    - /bin/chmod -R 775 $LARAVEL_APP/bootstrap/cache
-    - /bin/chmod +x setup.sh
+    # Tolerant chmod (some user-uploaded files cannot be chmod'd; ignore)
+    - /bin/chmod -R 755 $LARAVEL_APP 2>/dev/null || true
+    # Ensure framework writable directories regardless
+    - /bin/chmod -R 775 $LARAVEL_APP/storage 2>/dev/null || true
+    - /bin/chmod -R 775 $LARAVEL_APP/bootstrap/cache 2>/dev/null || true
+    # Make sure laravel.log exists and is writable by web user
+    - /bin/mkdir -p $LARAVEL_APP/storage/logs
+    - /bin/touch $LARAVEL_APP/storage/logs/laravel.log
+    - /bin/chmod 664 $LARAVEL_APP/storage/logs/laravel.log
+    # Clear stale package/service cache that pins old middleware aliases
+    - /bin/rm -f $LARAVEL_APP/bootstrap/cache/services.php
+    - /bin/rm -f $LARAVEL_APP/bootstrap/cache/packages.php
+    - /bin/rm -f $LARAVEL_APP/bootstrap/cache/config.php
+    - /bin/rm -f $LARAVEL_APP/bootstrap/cache/routes-v7.php
+    - /bin/rm -f $LARAVEL_APP/bootstrap/cache/events.php
     - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan config:clear || true
     - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan route:clear || true
     - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan cache:clear || true
     - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan view:clear || true
-    # Run pending migrations (safe: each new migration uses Schema::hasColumn checks)
+    # Run pending migrations (each new migration uses Schema::hasColumn checks)
     - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan migrate --force || true
     # Re-encrypt legacy PII rows (idempotent: skips already-encrypted values)
     - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan encrypt:legacy-pii || true
