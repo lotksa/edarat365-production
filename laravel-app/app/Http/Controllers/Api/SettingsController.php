@@ -44,10 +44,6 @@ class SettingsController extends Controller
             'site_logo' => '/brand/logo.png',
             'site_logo_dark' => '/brand/logo-dark.png',
             'site_icon' => '/brand/icon.png',
-            'meta_description_ar' => 'منصة احترافية لإدارة اتحاد الملاك',
-            'meta_description_en' => 'Professional HOA Management Platform',
-            'meta_keywords_ar' => 'إدارة عقارات, اتحاد ملاك, فواتير',
-            'meta_keywords_en' => 'property management, HOA, invoices',
             'default_language' => 'ar',
             'default_theme' => 'light',
             'copyright_ar' => '© 2026 إدارات 365. جميع الحقوق محفوظة.',
@@ -505,6 +501,31 @@ class SettingsController extends Controller
         ],
     ];
 
+    /**
+     * Legacy keys to strip from saved settings (private platform — no SEO/meta).
+     */
+    private const FORBIDDEN_KEYS = [
+        'general' => [
+            'meta_description_ar',
+            'meta_description_en',
+            'meta_keywords_ar',
+            'meta_keywords_en',
+            'meta_title_ar',
+            'meta_title_en',
+            'meta_author',
+            'meta_robots',
+        ],
+    ];
+
+    private function stripForbidden(string $key, array $value): array
+    {
+        $forbidden = self::FORBIDDEN_KEYS[$key] ?? [];
+        foreach ($forbidden as $k) {
+            unset($value[$k]);
+        }
+        return $value;
+    }
+
     public function show(string $key): JsonResponse
     {
         if (!in_array($key, self::ALLOWED_KEYS, true)) {
@@ -512,6 +533,7 @@ class SettingsController extends Controller
         }
 
         $value = Setting::getByKey($key, self::DEFAULTS[$key] ?? []);
+        $value = $this->stripForbidden($key, $value);
 
         return response()->json([
             'key' => $key,
@@ -530,6 +552,7 @@ class SettingsController extends Controller
         $defaults = self::DEFAULTS[$key] ?? [];
         $current = Setting::getByKey($key, $defaults);
         $merged = array_replace_recursive($current, $request->input('value'));
+        $merged = $this->stripForbidden($key, $merged);
 
         Setting::setByKey($key, $merged);
 
