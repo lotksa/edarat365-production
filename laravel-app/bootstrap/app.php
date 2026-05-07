@@ -13,8 +13,11 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(\App\Http\Middleware\NoIndexHeaders::class);
+        $middleware->append(\App\Http\Middleware\SecurityHeaders::class);
+
         $middleware->alias([
-            'permission' => \App\Http\Middleware\CheckPermission::class,
+            'permission'     => \App\Http\Middleware\CheckPermission::class,
+            'auth.throttle'  => \App\Http\Middleware\LoginThrottle::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

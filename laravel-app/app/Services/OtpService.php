@@ -19,31 +19,62 @@ class OtpService
     public const PURPOSE_LOGIN = 'login';
     public const PURPOSE_PASSWORD_RESET = 'password_reset';
 
+    /** Max OTP verification attempts before invalidating the code. */
+    public const MAX_VERIFY_ATTEMPTS = 5;
+
     public function detectChannel(string $identifier): string
     {
         return filter_var($identifier, FILTER_VALIDATE_EMAIL) ? self::CHANNEL_EMAIL : self::CHANNEL_PHONE;
     }
 
+    /**
+     * Cryptographically-secure 6-digit OTP. No predictable values in any environment.
+     */
     public function generateCode(): string
     {
-        if (app()->environment('local')) {
-            return '111111';
-        }
-
         return str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * HMAC-SHA256 hash of the OTP using APP_KEY as the secret. Constant-time
+     * compare via hash_equals() during verification prevents timing leaks.
+     */
+    public function hashCode(string $code): string
+    {
+        $secret = config('app.key');
+        if (str_starts_with($secret, 'base64:')) {
+            $secret = base64_decode(substr($secret, 7));
+        }
+        return hash_hmac('sha256', $code, $secret);
     }
 
     public function createOtp(string $identifier, string $channel, string $purpose, int $minutes = 10): LoginOtp
     {
         $code = $this->generateCode();
 
-        return LoginOtp::query()->create([
+        $otp = LoginOtp::query()->create([
             'identifier' => Str::lower(trim($identifier)),
-            'channel' => $channel,
-            'purpose' => $purpose,
-            'code' => $code,
+            'channel'    => $channel,
+            'purpose'    => $purpose,
+            'code'       => null,
+            'code_hash'  => $this->hashCode($code),
             'expires_at' => now()->addMinutes($minutes),
+            'attempts'   => 0,
         ]);
+
+        $otp->setAttribute('plain_code', $code);
+
+        return $otp;
+    }
+
+    /**
+     * Constant-time verification. Returns true if hashes match.
+     */
+    public function verifyCode(LoginOtp $otp, string $candidate): bool
+    {
+        $expected = (string) $otp->code_hash;
+        if ($expected === '') return false;
+        return hash_equals($expected, $this->hashCode($candidate));
     }
 
     public function send(LoginOtp $otp, ?string $userName = null): array
@@ -53,8 +84,10 @@ class OtpService
 
         $minutes = max(1, (int) round(now()->diffInSeconds(Carbon::parse($otp->expires_at), false) / 60)) ?: 10;
 
+        $plainCode = $otp->plain_code ?? '';
+
         $vars = [
-            '{{code}}' => $otp->code,
+            '{{code}}' => $plainCode,
             '{{minutes}}' => (string) $minutes,
             '{{name}}' => $userName ?? '',
             '{{app_name}}' => 'Edarat365',
@@ -70,7 +103,7 @@ class OtpService
             $codeVars['{{code}}'] = '<strong style="font-size:32px;font-weight:800;letter-spacing:10px;color:'
                 . htmlspecialchars($branding['code_color'], ENT_QUOTES) . ';background:'
                 . htmlspecialchars($branding['code_bg'], ENT_QUOTES) . ';padding:14px 22px;border-radius:10px;display:inline-block;direction:ltr;">'
-                . htmlspecialchars((string) ($vars['{{code}}'] ?? ''), ENT_QUOTES) . '</strong>';
+                . htmlspecialchars($plainCode, ENT_QUOTES) . '</strong>';
 
             $subject = strtr($tpl['subject'] ?? '', $vars);
             $innerBody = strtr($tpl['body'] ?? '', $codeVars);
@@ -80,8 +113,9 @@ class OtpService
 
             return [
                 'channel' => 'email',
-                'sent' => $sent,
-                'preview' => app()->environment('local') ? $otp->code : null,
+                'sent'    => $sent,
+                // Never preview the code in any environment — codes ride only via the chosen channel.
+                'preview' => null,
             ];
         }
 
@@ -92,8 +126,8 @@ class OtpService
 
         return [
             'channel' => 'phone',
-            'sent' => $sent,
-            'preview' => app()->environment('local') ? $otp->code : null,
+            'sent'    => $sent,
+            'preview' => null,
         ];
     }
 

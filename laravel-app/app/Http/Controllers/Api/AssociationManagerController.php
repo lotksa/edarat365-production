@@ -57,7 +57,7 @@ class AssociationManagerController extends Controller
     {
         $data = $request->validate([
             'full_name'   => ['required', 'string', 'max:255'],
-            'national_id' => ['required', 'string', 'size:10', 'regex:/^\d{10}$/', 'unique:association_managers,national_id'],
+            'national_id' => ['required', 'string', 'size:10', 'regex:/^\d{10}$/', new \App\Rules\UniqueEncrypted('association_managers', 'national_id_hash')],
             'phone'       => ['nullable', 'string', 'size:10', 'regex:/^05\d{8}$/'],
             'email'       => ['nullable', 'email', 'max:255'],
         ], [
@@ -84,7 +84,7 @@ class AssociationManagerController extends Controller
         $mgr = AssociationManager::findOrFail($id);
         $data = $request->validate([
             'full_name'   => ['sometimes', 'string', 'max:255'],
-            'national_id' => ['sometimes', 'string', 'size:10', 'regex:/^\d{10}$/', 'unique:association_managers,national_id,' . $id],
+            'national_id' => ['sometimes', 'string', 'size:10', 'regex:/^\d{10}$/', new \App\Rules\UniqueEncrypted('association_managers', 'national_id_hash', ignoreId: (int) $id)],
             'phone'       => ['nullable', 'string', 'size:10', 'regex:/^05\d{8}$/'],
             'email'       => ['nullable', 'email', 'max:255'],
         ], [

@@ -1,11 +1,22 @@
-# Edarat365 - Vue SPA Routing for cPanel/Apache
+# ─────────────────────────────────────────────────────────────────────────────
+# Edarat365 — Production hardening (cPanel/Apache)
+# ─────────────────────────────────────────────────────────────────────────────
 
+# Disable directory browsing and signature
+Options -Indexes -MultiViews
+ServerSignature Off
+
+# ─── SPA Routing ─────────────────────────────────────────────────────────────
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteBase /
 
     # Don't rewrite API requests
     RewriteRule ^api/ - [L]
+
+    # Block path traversal attempts
+    RewriteCond %{THE_REQUEST} \s/+(.*)\.\.(.*)\s [NC]
+    RewriteRule ^ - [F,L]
 
     # Don't rewrite real files or directories
     RewriteCond %{REQUEST_FILENAME} -f [OR]
@@ -16,20 +27,60 @@
     RewriteRule ^ index.html [L]
 </IfModule>
 
-# Security headers - prevent indexing
+# ─── Security Headers (defense-in-depth) ─────────────────────────────────────
 <IfModule mod_headers.c>
+    # Force HTTPS for one year, on all subdomains, eligible for browser preload list
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+
+    # Block search engines (private platform)
     Header always set X-Robots-Tag "noindex, nofollow, noarchive, nosnippet, noimageindex, nocache"
-    Header always set X-Frame-Options "SAMEORIGIN"
+
+    # Click-jacking protection
+    Header always set X-Frame-Options "DENY"
+
+    # MIME-type sniffing
     Header always set X-Content-Type-Options "nosniff"
-    Header always set Referrer-Policy "no-referrer"
+
+    # Referrer leakage
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # Disable powerful browser APIs we never use
+    Header always set Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=(), interest-cohort=()"
+
+    # Cross-origin isolation
+    Header always set Cross-Origin-Opener-Policy "same-origin"
+    Header always set Cross-Origin-Resource-Policy "same-site"
+
+    # Hide server software fingerprint
+    Header always unset X-Powered-By
+    Header always unset Server
 </IfModule>
 
-# Compression
+# ─── Block sensitive files & directories ─────────────────────────────────────
+# Anything starting with a dot (.git, .env, .htaccess itself, etc.)
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+# Common sensitive extensions
+<FilesMatch "\.(env|log|sql|sqlite|sqlite3|bak|backup|swp|swo|orig|save|pem|key|crt|p12|pfx|md|lock|config|inc|tpl|tar|tar\.gz|tgz|zip|7z|rar)$">
+    Require all denied
+</FilesMatch>
+
+# Composer / npm metadata files
+<FilesMatch "(composer\.(json|lock)|package(-lock)?\.json|yarn\.lock|webpack\.config\..*|vite\.config\..*|\.eslintrc.*|\.prettierrc.*|tsconfig.*|phpunit\.xml|README\.md|CHANGELOG.*|LICENSE.*)$">
+    Require all denied
+</FilesMatch>
+
+# Block any access to vendor / storage / framework / node_modules paths
+RedirectMatch 404 /(vendor|storage|bootstrap/cache|node_modules|tests|database|config|app|routes|resources)(/|$)
+
+# ─── Compression ─────────────────────────────────────────────────────────────
 <IfModule mod_deflate.c>
     AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json application/xml application/xml+rss image/svg+xml
 </IfModule>
 
-# Cache static assets
+# ─── Cache static assets ─────────────────────────────────────────────────────
 <IfModule mod_expires.c>
     ExpiresActive On
     ExpiresByType image/jpg "access plus 1 year"
@@ -43,6 +94,3 @@
     ExpiresByType font/woff2 "access plus 1 year"
     ExpiresByType text/html "access plus 0 seconds"
 </IfModule>
-
-# Disable directory browsing
-Options -Indexes

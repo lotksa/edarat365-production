@@ -28,11 +28,13 @@ class AccountController extends Controller
     {
         $user = $request->user();
 
+        // SECURITY: Privilege fields (role, role_id, is_active, locked_until,
+        // password_changed_at) are intentionally excluded — only an admin via
+        // the protected /users endpoint may change them.
         $payload = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['nullable', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user?->id)],
-            'phone' => ['nullable', 'string', 'size:10', 'regex:/^05\d{8}$/', Rule::unique('users', 'phone')->ignore($user?->id)],
-            'role' => ['required', 'string', 'max:50'],
+            'name'       => ['required', 'string', 'max:255'],
+            'email'      => ['nullable', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user?->id)],
+            'phone'      => ['nullable', 'string', 'size:10', 'regex:/^05\d{8}$/', Rule::unique('users', 'phone')->ignore($user?->id)],
             'avatar_url' => ['nullable', 'url', 'max:1024'],
         ], [
             'phone.size'  => 'رقم الجوال يجب أن يكون 10 أرقام ويبدأ بـ 05',
@@ -43,7 +45,7 @@ class AccountController extends Controller
 
         return response()->json([
             'message' => 'Profile updated',
-            'data' => $user?->fresh(),
+            'data'    => $user?->fresh(),
         ]);
     }
 }

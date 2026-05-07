@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\EncryptsAttributes;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -11,6 +12,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Owner extends Model
 {
     use SoftDeletes;
+    use EncryptsAttributes;
 
     protected $fillable = [
         'user_id', 'national_id', 'full_name', 'avatar',
@@ -18,6 +20,28 @@ class Owner extends Model
         'has_national_address', 'address_type', 'address_short_code',
         'address_region', 'address_city', 'address_district', 'address_street',
         'address_building_no', 'address_additional_no', 'address_postal_code', 'address_unit_no',
+    ];
+
+    /**
+     * PII columns encrypted at rest with AES-256-CBC + HMAC.
+     * National ID, full address details, account number — anything that
+     * uniquely identifies the owner to a third party.
+     */
+    protected array $encryptable = [
+        'national_id',
+        'address_street',
+        'address_building_no',
+        'address_additional_no',
+        'address_postal_code',
+        'address_unit_no',
+    ];
+
+    /**
+     * Blind-index columns enabling exact lookups without decrypting the row.
+     * The trait keeps these in sync with the encrypted source automatically.
+     */
+    protected array $blindHashable = [
+        'national_id' => 'national_id_hash',
     ];
 
     protected $casts = [

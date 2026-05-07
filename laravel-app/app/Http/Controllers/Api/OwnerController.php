@@ -89,7 +89,7 @@ class OwnerController extends Controller
     {
         $nationalId = $request->input('national_id');
 
-        $trashed = Owner::onlyTrashed()->where('national_id', $nationalId)->first();
+        $trashed = Owner::onlyTrashed()->where('national_id_hash', Owner::blindHash((string) $nationalId))->first();
         if ($trashed) {
             $oldAccountId = $trashed->id;
             $trashed->restore();
@@ -121,7 +121,7 @@ class OwnerController extends Controller
 
         $rules = array_merge([
             'full_name'   => ['required', 'string', 'max:255'],
-            'national_id' => ['required', 'string', 'size:10', 'regex:/^\d{10}$/', 'unique:owners,national_id'],
+            'national_id' => ['required', 'string', 'size:10', 'regex:/^\d{10}$/', new \App\Rules\UniqueEncrypted('owners', 'national_id_hash')],
             'phone'       => ['nullable', 'string', 'size:10', 'regex:/^05\d{8}$/'],
             'email'       => ['nullable', 'email', 'max:255'],
             'avatar'      => ['nullable', 'image', 'max:2048'],
@@ -268,7 +268,7 @@ class OwnerController extends Controller
 
         $data = $request->validate(array_merge([
             'full_name'   => ['sometimes', 'string', 'max:255'],
-            'national_id' => ['sometimes', 'string', 'size:10', 'regex:/^\d{10}$/', 'unique:owners,national_id,' . $id],
+            'national_id' => ['sometimes', 'string', 'size:10', 'regex:/^\d{10}$/', new \App\Rules\UniqueEncrypted('owners', 'national_id_hash', ignoreId: (int) $id)],
             'phone'       => ['nullable', 'string', 'size:10', 'regex:/^05\d{8}$/'],
             'email'       => ['nullable', 'email', 'max:255'],
             'avatar'      => ['nullable', 'image', 'max:2048'],
@@ -485,7 +485,7 @@ class OwnerController extends Controller
                 continue;
             }
 
-            if (Owner::where('national_id', $nationalId)->exists()) {
+            if (Owner::where('national_id_hash', Owner::blindHash((string) $nationalId))->exists()) {
                 $errors[] = "Row {$row}: national ID {$nationalId} already exists";
                 $skipped++;
                 continue;

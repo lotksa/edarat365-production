@@ -60,7 +60,7 @@ class PropertyManagerController extends Controller
     {
         $data = $request->validate([
             'full_name'   => ['required', 'string', 'max:255'],
-            'national_id' => ['required', 'string', 'size:10', 'regex:/^\d{10}$/', 'unique:property_managers,national_id'],
+            'national_id' => ['required', 'string', 'size:10', 'regex:/^\d{10}$/', new \App\Rules\UniqueEncrypted('property_managers', 'national_id_hash')],
             'phone'       => ['nullable', 'string', 'size:10', 'regex:/^05\d{8}$/'],
             'email'       => ['nullable', 'email', 'max:255'],
         ], [
@@ -89,7 +89,7 @@ class PropertyManagerController extends Controller
 
         $data = $request->validate([
             'full_name'   => ['sometimes', 'string', 'max:255'],
-            'national_id' => ['sometimes', 'string', 'size:10', 'regex:/^\d{10}$/', 'unique:property_managers,national_id,' . $id],
+            'national_id' => ['sometimes', 'string', 'size:10', 'regex:/^\d{10}$/', new \App\Rules\UniqueEncrypted('property_managers', 'national_id_hash', ignoreId: (int) $id)],
             'phone'       => ['nullable', 'string', 'size:10', 'regex:/^05\d{8}$/'],
             'email'       => ['nullable', 'email', 'max:255'],
         ], [

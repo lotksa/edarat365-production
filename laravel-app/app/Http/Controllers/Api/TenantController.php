@@ -81,7 +81,7 @@ class TenantController extends Controller
             ]);
         }
 
-        $existing = Tenant::where('national_id', $data['national_id'])->first();
+        $existing = Tenant::where('national_id_hash', Tenant::blindHash((string) $data['national_id']))->first();
         if ($existing) {
             $existing->update($data);
             return response()->json([
@@ -109,7 +109,7 @@ class TenantController extends Controller
         $tenant = Tenant::findOrFail($id);
         $data = $request->validate(array_merge([
             'full_name'   => ['required', 'string', 'max:255'],
-            'national_id' => ['required', 'string', 'max:20', 'unique:tenants,national_id,' . $id],
+            'national_id' => ['required', 'string', 'max:20', new \App\Rules\UniqueEncrypted('tenants', 'national_id_hash', ignoreId: (int) $id)],
             'phone'       => ['nullable', 'string', 'max:20'],
             'email'       => ['nullable', 'email', 'max:255'],
             'nationality' => ['nullable', 'string', 'max:100'],

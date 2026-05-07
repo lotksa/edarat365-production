@@ -2,17 +2,33 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\EncryptsAttributes;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Tenant extends Model
 {
+    use EncryptsAttributes;
+
     protected $fillable = [
         'full_name', 'national_id', 'phone',
         'email', 'nationality', 'status',
         'has_national_address', 'address_type', 'address_short_code',
         'address_region', 'address_city', 'address_district', 'address_street',
         'address_building_no', 'address_additional_no', 'address_postal_code', 'address_unit_no',
+    ];
+
+    protected array $encryptable = [
+        'national_id',
+        'address_street',
+        'address_building_no',
+        'address_additional_no',
+        'address_postal_code',
+        'address_unit_no',
+    ];
+
+    protected array $blindHashable = [
+        'national_id' => 'national_id_hash',
     ];
 
     protected $casts = [

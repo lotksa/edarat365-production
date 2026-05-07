@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\EncryptsAttributes;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Contract extends Model
 {
+    use EncryptsAttributes;
+
     protected $fillable = [
         'contract_number', 'contract_name', 'contract_nature', 'contract_type',
         'contract_date', 'venue', 'venue_address', 'venue_city',
@@ -19,6 +22,16 @@ class Contract extends Model
         'status', 'notes',
         'utilities_responsibility', 'insurance_required', 'maintenance_responsibility',
         'ejar_reference_id', 'ejar_status', 'ejar_synced_at',
+    ];
+
+    /**
+     * Both contract parties' identity documents and addresses are encrypted at rest.
+     */
+    protected array $encryptable = [
+        'party1_national_id',
+        'party1_address',
+        'party2_national_id',
+        'party2_address',
     ];
 
     protected $casts = [

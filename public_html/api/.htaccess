@@ -1,37 +1,49 @@
-<IfModule mod_rewrite.c>
-    <IfModule mod_negotiation.c>
-        Options -MultiViews -Indexes
-    </IfModule>
+# ─────────────────────────────────────────────────────────────────────────────
+# Edarat365 API — Laravel public/ entry hardening
+# ─────────────────────────────────────────────────────────────────────────────
 
+Options -MultiViews -Indexes
+ServerSignature Off
+
+<IfModule mod_rewrite.c>
     RewriteEngine On
 
-    # Handle Authorization Header
+    # Block path traversal
+    RewriteCond %{THE_REQUEST} \s/+(.*)\.\.(.*)\s [NC]
+    RewriteRule ^ - [F,L]
+
+    # Handle Authorization Header (cPanel + PHP-FPM compatibility)
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 
-    # Redirect Trailing Slashes If Not A Folder...
+    # Trailing slashes
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_URI} (.+)/$
     RewriteRule ^ %1 [L,R=301]
 
-    # Send Requests To Front Controller...
+    # Front-controller pattern
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]
 </IfModule>
 
-# Security headers
+# ─── Security Headers ────────────────────────────────────────────────────────
 <IfModule mod_headers.c>
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
     Header always set X-Robots-Tag "noindex, nofollow, noarchive, nosnippet"
-    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-Frame-Options "DENY"
     Header always set X-Content-Type-Options "nosniff"
-    Header always set Referrer-Policy "no-referrer"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always unset X-Powered-By
+    Header always unset Server
 </IfModule>
 
-# Disable directory browsing
-Options -Indexes
+# ─── Block access to dotfiles ────────────────────────────────────────────────
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
 
-# Prevent access to sensitive files
-<FilesMatch "\.(env|log|sql|md|json|lock)$">
+# ─── Block sensitive file extensions ─────────────────────────────────────────
+<FilesMatch "\.(env|log|sql|sqlite|sqlite3|bak|backup|swp|swo|orig|save|pem|key|crt|p12|pfx|md|lock|composer\.json|composer\.lock|package\.json|yarn\.lock|phpunit\.xml|inc|tpl)$">
     Require all denied
 </FilesMatch>

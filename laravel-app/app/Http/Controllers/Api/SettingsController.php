@@ -517,6 +517,19 @@ class SettingsController extends Controller
         ],
     ];
 
+    /**
+     * Sensitive secrets per settings key. These are encrypted at rest (AES-256-CBC + HMAC).
+     * On read they are decrypted and returned only as a masked indicator (****) for the UI;
+     * the cleartext value is never shipped back to any client.
+     */
+    private const SECRET_KEYS = [
+        'mail'         => ['smtp_password'],
+        'sms'          => ['api_key'],
+        'ai'           => ['api_key'],
+        'turnstile'    => ['secret_key'],
+        'integrations' => ['api_key', 'api_secret', 'access_token', 'webhook_secret'],
+    ];
+
     private function stripForbidden(string $key, array $value): array
     {
         $forbidden = self::FORBIDDEN_KEYS[$key] ?? [];
@@ -524,6 +537,64 @@ class SettingsController extends Controller
             unset($value[$k]);
         }
         return $value;
+    }
+
+    /**
+     * Encrypt sensitive secrets before persisting. Existing already-encrypted values
+     * are detected and re-used to allow partial updates (e.g., changing only the URL).
+     */
+    private function encryptSecrets(string $key, array $value): array
+    {
+        $secrets = self::SECRET_KEYS[$key] ?? [];
+        foreach ($secrets as $field) {
+            if (!array_key_exists($field, $value)) continue;
+            $v = $value[$field];
+            if (!is_string($v) || $v === '' || $v === '****' || $this->looksEncrypted($v)) continue;
+            try {
+                $value[$field] = \Illuminate\Support\Facades\Crypt::encryptString($v);
+            } catch (\Throwable $e) {
+                // fall through — keep original on encryption failure (logged elsewhere)
+            }
+        }
+        return $value;
+    }
+
+    /**
+     * Decrypt secrets when returning to internal callers (mail send, AI calls).
+     * For API responses we return masked placeholders.
+     */
+    private function decryptSecrets(string $key, array $value, bool $maskForApi = true): array
+    {
+        $secrets = self::SECRET_KEYS[$key] ?? [];
+        foreach ($secrets as $field) {
+            if (!array_key_exists($field, $value)) continue;
+            $v = $value[$field];
+            if (!is_string($v) || $v === '') continue;
+
+            $clear = $v;
+            if ($this->looksEncrypted($v)) {
+                try {
+                    $clear = \Illuminate\Support\Facades\Crypt::decryptString($v);
+                } catch (\Throwable $e) {
+                    $clear = $v;
+                }
+            }
+
+            $value[$field] = $maskForApi
+                ? ($clear !== '' ? str_repeat('*', max(4, min(12, strlen($clear)))) : '')
+                : $clear;
+        }
+        return $value;
+    }
+
+    private function looksEncrypted(string $v): bool
+    {
+        try {
+            \Illuminate\Support\Facades\Crypt::decryptString($v);
+            return true;
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     public function show(string $key): JsonResponse
@@ -534,6 +605,7 @@ class SettingsController extends Controller
 
         $value = Setting::getByKey($key, self::DEFAULTS[$key] ?? []);
         $value = $this->stripForbidden($key, $value);
+        $value = $this->decryptSecrets($key, $value, maskForApi: true);
 
         return response()->json([
             'key' => $key,
@@ -551,15 +623,31 @@ class SettingsController extends Controller
 
         $defaults = self::DEFAULTS[$key] ?? [];
         $current = Setting::getByKey($key, $defaults);
-        $merged = array_replace_recursive($current, $request->input('value'));
+        $incoming = $request->input('value');
+
+        // Preserve existing secrets when client sends the masked placeholder back unchanged
+        $secrets = self::SECRET_KEYS[$key] ?? [];
+        foreach ($secrets as $field) {
+            if (
+                array_key_exists($field, $incoming)
+                && (str_starts_with((string) $incoming[$field], '****') || preg_match('/^\*+$/', (string) $incoming[$field]))
+            ) {
+                unset($incoming[$field]); // keep current encrypted value
+            }
+        }
+
+        $merged = array_replace_recursive($current, $incoming);
         $merged = $this->stripForbidden($key, $merged);
+        $merged = $this->encryptSecrets($key, $merged);
 
         Setting::setByKey($key, $merged);
 
+        $response = $this->decryptSecrets($key, $merged, maskForApi: true);
+
         return response()->json([
             'message' => 'ok',
-            'key' => $key,
-            'value' => $merged,
+            'key'     => $key,
+            'value'   => $response,
         ]);
     }
 }

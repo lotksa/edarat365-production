@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Role;
+use App\Models\SecurityAuditLog;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -78,7 +79,8 @@ class UserController extends Controller
             'email'    => ['required', 'email', 'max:255', 'unique:users,email'],
             'phone'    => ['nullable', 'string', 'size:10', 'regex:/^05\d{8}$/', 'unique:users,phone'],
             'role_id'  => ['required', 'integer', 'exists:roles,id'],
-            'password' => ['nullable', 'string', 'min:6'],
+            'password' => ['nullable', \Illuminate\Validation\Rules\Password::min(12)
+                ->letters()->mixedCase()->numbers()->symbols()],
             'is_active'=> ['nullable', 'boolean'],
         ], [
             'phone.size'  => 'رقم الجوال يجب أن يكون 10 أرقام ويبدأ بـ 05',
@@ -101,6 +103,11 @@ class UserController extends Controller
 
         ActivityLog::record('user', $user->id, 'created', 'تم إنشاء مستخدم جديد', null, $user->only(['name','email','phone','role']));
 
+        SecurityAuditLog::record('rbac.user.created', 'success', [
+            'role_id' => $role->id,
+            'role'    => $role->key,
+        ], auth()->user(), null, ['type' => 'user', 'id' => $user->id]);
+
         return response()->json([
             'message' => 'تم إنشاء المستخدم بنجاح',
             'data'    => $user->load('userRole'),
@@ -111,13 +118,15 @@ class UserController extends Controller
     {
         $user = User::findOrFail($id);
         $oldValues = $user->only(['name','email','phone','role','role_id','is_active']);
+        $oldRoleId = $user->role_id;
 
         $data = $request->validate([
             'name'     => ['sometimes', 'string', 'max:255'],
             'email'    => ['sometimes', 'email', 'max:255', Rule::unique('users','email')->ignore($id)],
             'phone'    => ['nullable', 'string', 'size:10', 'regex:/^05\d{8}$/', Rule::unique('users','phone')->ignore($id)],
             'role_id'  => ['sometimes', 'integer', 'exists:roles,id'],
-            'password' => ['nullable', 'string', 'min:6'],
+            'password' => ['nullable', \Illuminate\Validation\Rules\Password::min(12)
+                ->letters()->mixedCase()->numbers()->symbols()],
             'is_active'=> ['nullable', 'boolean'],
         ]);
 
@@ -128,6 +137,7 @@ class UserController extends Controller
 
         if (!empty($data['password'])) {
             $data['password'] = Hash::make($data['password']);
+            $data['password_changed_at'] = now();
         } else {
             unset($data['password']);
         }
@@ -135,6 +145,21 @@ class UserController extends Controller
         $user->update($data);
 
         ActivityLog::record('user', $user->id, 'updated', 'تم تحديث بيانات المستخدم', $oldValues, $user->fresh()->only(['name','email','phone','role','role_id','is_active']));
+
+        if (isset($data['role_id']) && $data['role_id'] !== $oldRoleId) {
+            SecurityAuditLog::record('rbac.role.changed', 'success', [
+                'old_role_id' => $oldRoleId,
+                'new_role_id' => $data['role_id'],
+            ], auth()->user(), null, ['type' => 'user', 'id' => $user->id]);
+        }
+        if (isset($data['password'])) {
+            SecurityAuditLog::record('auth.password.changed_by_admin', 'success', [], auth()->user(), null, ['type' => 'user', 'id' => $user->id]);
+            $user->tokens()->delete();
+        }
+        if (array_key_exists('is_active', $data) && $data['is_active'] !== ($oldValues['is_active'] ?? null)) {
+            SecurityAuditLog::record('rbac.user.' . ($data['is_active'] ? 'activated' : 'deactivated'), 'success', [], auth()->user(), null, ['type' => 'user', 'id' => $user->id]);
+            if (!$data['is_active']) $user->tokens()->delete();
+        }
 
         return response()->json([
             'message' => 'تم تحديث المستخدم بنجاح',

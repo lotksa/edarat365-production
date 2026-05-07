@@ -48,11 +48,17 @@ Route::prefix('v1')->group(function () {
         'service' => 'edarat365-api',
     ]));
 
-    Route::post('/auth/login', [AuthController::class, 'login']);
-    Route::post('/auth/request-otp', [AuthController::class, 'requestOtp']);
-    Route::post('/auth/verify-otp', [AuthController::class, 'verifyOtp']);
-    Route::post('/auth/forgot-password', [AuthController::class, 'requestOtp']);
-    Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
+    // Strict per-IP + per-identifier throttles to defeat brute-force / credential stuffing.
+    Route::post('/auth/login', [AuthController::class, 'login'])
+        ->middleware('auth.throttle:5,1,login');
+    Route::post('/auth/request-otp', [AuthController::class, 'requestOtp'])
+        ->middleware('auth.throttle:3,1,otp_request');
+    Route::post('/auth/verify-otp', [AuthController::class, 'verifyOtp'])
+        ->middleware('auth.throttle:5,1,otp_verify');
+    Route::post('/auth/forgot-password', [AuthController::class, 'requestOtp'])
+        ->middleware('auth.throttle:3,1,forgot');
+    Route::post('/auth/reset-password', [AuthController::class, 'resetPassword'])
+        ->middleware('auth.throttle:3,1,reset');
 
     // ── Authenticated endpoints ───────────────────────────────────────────────
     Route::middleware('auth:sanctum')->group(function () {

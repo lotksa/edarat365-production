@@ -21,15 +21,26 @@ class User extends Authenticatable
     protected $fillable = [
         'name', 'email', 'phone', 'role', 'role_id',
         'is_active', 'last_login_at', 'avatar_url', 'password',
+        'failed_login_attempts', 'locked_until', 'last_failed_login_at',
+        'last_login_ip', 'password_changed_at',
+    ];
+
+    protected $hidden = [
+        'password', 'remember_token',
+        'failed_login_attempts', 'locked_until', 'last_failed_login_at',
     ];
 
     protected function casts(): array
     {
         return [
-            'email_verified_at' => 'datetime',
-            'last_login_at' => 'datetime',
-            'is_active' => 'boolean',
-            'password' => 'hashed',
+            'email_verified_at'     => 'datetime',
+            'last_login_at'         => 'datetime',
+            'last_failed_login_at'  => 'datetime',
+            'locked_until'          => 'datetime',
+            'password_changed_at'   => 'datetime',
+            'is_active'             => 'boolean',
+            'failed_login_attempts' => 'integer',
+            'password'              => 'hashed',
         ];
     }
 

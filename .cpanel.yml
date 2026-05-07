@@ -19,3 +19,7 @@ deployment:
     - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan route:clear || true
     - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan cache:clear || true
     - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan view:clear || true
+    # Run pending migrations (safe: each new migration uses Schema::hasColumn checks)
+    - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan migrate --force || true
+    # Re-encrypt legacy PII rows (idempotent: skips already-encrypted values)
+    - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan encrypt:legacy-pii || true

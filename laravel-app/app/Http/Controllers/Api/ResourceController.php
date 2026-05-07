@@ -118,7 +118,7 @@ class ResourceController extends Controller
         return match ($resource) {
             'owners' => [
                 'user_id' => ['nullable', 'exists:users,id'],
-                'national_id' => ['required', 'string', 'size:10', 'regex:/^\d{10}$/', 'unique:owners,national_id,' . $id],
+                'national_id' => ['required', 'string', 'size:10', 'regex:/^\d{10}$/', new \App\Rules\UniqueEncrypted('owners', 'national_id_hash', ignoreId: $id ? (int) $id : null)],
                 'full_name' => ['required', 'string', 'max:255'],
                 'phone' => ['nullable', 'string', 'size:10', 'regex:/^05\d{8}$/'],
                 'email' => ['nullable', 'email', 'max:255'],
