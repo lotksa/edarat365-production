@@ -34,6 +34,7 @@ class SettingsController extends Controller
         'mail_branding',
         'sms_templates',
         'auth_settings',
+        'ai',
     ];
 
     private const DEFAULTS = [
@@ -495,6 +496,12 @@ class SettingsController extends Controller
             'default_operating_hours_end' => '22:00',
             'allow_owner_cancel' => true,
             'advance_booking_days' => 7,
+        ],
+        'ai' => [
+            'provider' => 'openai',
+            'api_key' => '',
+            'model' => 'gpt-4o-mini',
+            'custom_url' => '',
         ],
     ];
 

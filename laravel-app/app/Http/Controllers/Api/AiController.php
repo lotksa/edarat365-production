@@ -16,6 +16,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class AiController extends Controller
 {
@@ -25,7 +26,7 @@ class AiController extends Controller
             'format' => 'openai',
         ],
         'deepseek' => [
-            'url'    => 'https://api.deepseek.com/v1/chat/completions',
+            'url'    => 'https://api.deepseek.com/chat/completions',
             'format' => 'openai',
         ],
         'groq' => [
@@ -50,9 +51,9 @@ class AiController extends Controller
         ],
     ];
 
-    private function getAiConfig(): array
+    private function getAiConfig(?array $override = null): array
     {
-        $cfg = Setting::getByKey('ai', []);
+        $cfg = $override ?? Setting::getByKey('ai', []);
         return [
             'api_key'    => $cfg['api_key'] ?? '',
             'model'      => $cfg['model'] ?? 'gpt-4o-mini',
@@ -66,7 +67,9 @@ class AiController extends Controller
         if ($provider === 'custom' && $customUrl) {
             return $customUrl;
         }
-
+        if ($provider === 'ollama' && $customUrl) {
+            return $customUrl;
+        }
         $cfg = self::PROVIDERS[$provider] ?? self::PROVIDERS['openai'];
         return str_replace('{model}', $model, $cfg['url']);
     }
@@ -76,51 +79,120 @@ class AiController extends Controller
         return self::PROVIDERS[$provider]['format'] ?? 'openai';
     }
 
-    private function callAi(array $cfg, array $messages, int $maxTokens = 1000, float $temperature = 0.7): ?string
+    /**
+     * Call the AI provider and return a structured result with both content and error info.
+     *
+     * @return array{ok:bool, content:?string, error:?string, http_code:?int, raw:?array}
+     */
+    private function callAi(array $cfg, array $messages, int $maxTokens = 1000, float $temperature = 0.7, int $timeout = 60): array
     {
         $provider = $cfg['provider'];
         $format   = $this->getProviderFormat($provider);
-        $url      = $this->getProviderUrl($provider, $cfg['model'], $cfg['custom_url'] ?? '');
 
-        if ($format === 'gemini') {
-            return $this->callGemini($cfg, $messages, $maxTokens, $temperature);
+        try {
+            if ($format === 'gemini') {
+                return $this->callGemini($cfg, $messages, $maxTokens, $temperature, $timeout);
+            }
+            if ($format === 'ollama') {
+                return $this->callOllama($cfg, $messages, $timeout);
+            }
+            return $this->callOpenAiCompatible($cfg, $messages, $maxTokens, $temperature, $timeout);
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            return [
+                'ok' => false,
+                'content' => null,
+                'error' => 'تعذر الاتصال بخدمة المزود (انتهاء المهلة أو DNS): ' . $e->getMessage(),
+                'http_code' => null,
+                'raw' => null,
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('AI call exception', ['provider' => $provider, 'error' => $e->getMessage()]);
+            return [
+                'ok' => false,
+                'content' => null,
+                'error' => 'خطأ غير متوقع: ' . $e->getMessage(),
+                'http_code' => null,
+                'raw' => null,
+            ];
+        }
+    }
+
+    private function callOpenAiCompatible(array $cfg, array $messages, int $maxTokens, float $temperature, int $timeout): array
+    {
+        $provider = $cfg['provider'];
+        $url = $this->getProviderUrl($provider, $cfg['model'], $cfg['custom_url'] ?? '');
+
+        if (empty($url)) {
+            return [
+                'ok' => false,
+                'content' => null,
+                'error' => 'لم يتم تحديد رابط الخدمة (Custom URL).',
+                'http_code' => null,
+                'raw' => null,
+            ];
         }
 
-        if ($format === 'ollama') {
-            return $this->callOllama($cfg, $messages);
-        }
+        $http = Http::acceptJson()
+            ->withHeaders(['Content-Type' => 'application/json'])
+            ->timeout($timeout);
 
-        $headers = ['Content-Type' => 'application/json'];
-
-        $http = Http::withHeaders($headers)->timeout(30);
-
-        if ($provider !== 'ollama' && !empty($cfg['api_key'])) {
+        if (!empty($cfg['api_key'])) {
             $http = $http->withToken($cfg['api_key']);
         }
 
         if ($provider === 'openrouter') {
             $http = $http->withHeaders([
-                'HTTP-Referer'    => config('app.url', 'https://edarat365.com'),
-                'X-Title'         => 'Edarat365',
+                'HTTP-Referer' => config('app.url', 'https://edarat365.com'),
+                'X-Title'      => 'Edarat365',
             ]);
         }
 
-        $response = $http->post($url, [
+        $payload = [
             'model'       => $cfg['model'],
             'messages'    => $messages,
             'max_tokens'  => $maxTokens,
             'temperature' => $temperature,
-        ]);
+        ];
 
-        if ($response->ok()) {
-            return $response->json('choices.0.message.content');
+        $response = $http->post($url, $payload);
+        $json = $response->json() ?: [];
+
+        if ($response->successful()) {
+            $content = $json['choices'][0]['message']['content'] ?? null;
+            if ($content === null || $content === '') {
+                return [
+                    'ok' => false,
+                    'content' => null,
+                    'error' => 'استجابة فارغة من المزود (لا يوجد content). تحقق من اسم النموذج.',
+                    'http_code' => $response->status(),
+                    'raw' => $json,
+                ];
+            }
+            return [
+                'ok' => true,
+                'content' => $content,
+                'error' => null,
+                'http_code' => $response->status(),
+                'raw' => $json,
+            ];
         }
 
-        return null;
+        $errMsg = $this->extractErrorMessage($json, $response->body());
+        return [
+            'ok' => false,
+            'content' => null,
+            'error' => sprintf('[HTTP %d] %s', $response->status(), $errMsg),
+            'http_code' => $response->status(),
+            'raw' => $json ?: ['body' => substr($response->body(), 0, 500)],
+        ];
     }
 
-    private function callGemini(array $cfg, array $messages, int $maxTokens, float $temperature): ?string
+    private function callGemini(array $cfg, array $messages, int $maxTokens, float $temperature, int $timeout): array
     {
+        if (empty($cfg['api_key'])) {
+            return ['ok' => false, 'content' => null, 'error' => 'مفتاح API مفقود.', 'http_code' => null, 'raw' => null];
+        }
+
         $url = $this->getProviderUrl('gemini', $cfg['model']) . '?key=' . $cfg['api_key'];
 
         $contents = [];
@@ -134,7 +206,7 @@ class AiController extends Controller
             $contents[] = ['role' => $role, 'parts' => [['text' => $msg['content']]]];
         }
 
-        $response = Http::timeout(30)->post($url, [
+        $response = Http::acceptJson()->timeout($timeout)->post($url, [
             'contents'         => $contents,
             'generationConfig' => [
                 'maxOutputTokens' => $maxTokens,
@@ -142,28 +214,151 @@ class AiController extends Controller
             ],
         ]);
 
-        if ($response->ok()) {
-            return $response->json('candidates.0.content.parts.0.text');
+        $json = $response->json() ?: [];
+
+        if ($response->successful()) {
+            $content = $json['candidates'][0]['content']['parts'][0]['text'] ?? null;
+            if (!$content) {
+                $blockReason = $json['promptFeedback']['blockReason'] ?? null;
+                return [
+                    'ok' => false,
+                    'content' => null,
+                    'error' => $blockReason
+                        ? 'تم حجب المحتوى بواسطة Gemini: ' . $blockReason
+                        : 'استجابة فارغة من Gemini.',
+                    'http_code' => $response->status(),
+                    'raw' => $json,
+                ];
+            }
+            return ['ok' => true, 'content' => $content, 'error' => null, 'http_code' => $response->status(), 'raw' => $json];
         }
 
-        return null;
+        $errMsg = $this->extractErrorMessage($json, $response->body());
+        return [
+            'ok' => false,
+            'content' => null,
+            'error' => sprintf('[HTTP %d] %s', $response->status(), $errMsg),
+            'http_code' => $response->status(),
+            'raw' => $json ?: ['body' => substr($response->body(), 0, 500)],
+        ];
     }
 
-    private function callOllama(array $cfg, array $messages): ?string
+    private function callOllama(array $cfg, array $messages, int $timeout): array
     {
         $url = $cfg['custom_url'] ?: 'http://localhost:11434/api/chat';
 
-        $response = Http::timeout(60)->post($url, [
+        $response = Http::acceptJson()->timeout($timeout)->post($url, [
             'model'    => $cfg['model'],
             'messages' => $messages,
             'stream'   => false,
         ]);
 
-        if ($response->ok()) {
-            return $response->json('message.content');
+        $json = $response->json() ?: [];
+
+        if ($response->successful()) {
+            $content = $json['message']['content'] ?? null;
+            if (!$content) {
+                return ['ok' => false, 'content' => null, 'error' => 'استجابة فارغة من Ollama.', 'http_code' => $response->status(), 'raw' => $json];
+            }
+            return ['ok' => true, 'content' => $content, 'error' => null, 'http_code' => $response->status(), 'raw' => $json];
         }
 
-        return null;
+        $errMsg = $this->extractErrorMessage($json, $response->body());
+        return [
+            'ok' => false,
+            'content' => null,
+            'error' => sprintf('[HTTP %d] %s', $response->status(), $errMsg),
+            'http_code' => $response->status(),
+            'raw' => $json ?: ['body' => substr($response->body(), 0, 500)],
+        ];
+    }
+
+    /**
+     * Try to extract a human-readable error message from various provider response shapes.
+     */
+    private function extractErrorMessage(array $json, string $rawBody): string
+    {
+        // OpenAI-style: { error: { message, type, code } }
+        if (isset($json['error']['message'])) {
+            $msg = $json['error']['message'];
+            if (isset($json['error']['type'])) $msg .= ' (' . $json['error']['type'] . ')';
+            return $msg;
+        }
+        // OpenAI alt: { error: "string" }
+        if (isset($json['error']) && is_string($json['error'])) {
+            return $json['error'];
+        }
+        // Gemini-style: { error: { message, status, code } }
+        if (isset($json['message'])) {
+            return $json['message'];
+        }
+        // Ollama-style: { error: "..." }
+        if (isset($json['detail'])) {
+            return is_string($json['detail']) ? $json['detail'] : json_encode($json['detail']);
+        }
+        // OpenRouter-style: { error: { message, code } } already handled above
+
+        $body = trim($rawBody);
+        if ($body === '') return 'لا توجد تفاصيل من المزود.';
+        return mb_substr($body, 0, 300);
+    }
+
+    /**
+     * Lightweight test connection endpoint. Sends a tiny "ping" prompt and
+     * returns detailed diagnostics (HTTP code, latency, error if any).
+     * Accepts optional override (api_key, provider, model, custom_url) so the
+     * user can test before saving.
+     */
+    public function test(Request $request): JsonResponse
+    {
+        $request->validate([
+            'api_key'    => 'nullable|string|max:500',
+            'provider'   => 'nullable|string|max:50',
+            'model'      => 'nullable|string|max:200',
+            'custom_url' => 'nullable|string|max:500',
+        ]);
+
+        $override = array_filter($request->only(['api_key', 'provider', 'model', 'custom_url']), fn ($v) => $v !== null && $v !== '');
+
+        // Merge override over saved settings so a partial override (e.g. just api_key) still works
+        $saved = Setting::getByKey('ai', []);
+        $merged = array_merge(is_array($saved) ? $saved : [], $override);
+        $cfg = $this->getAiConfig($merged);
+
+        if (empty($cfg['provider'])) {
+            return response()->json([
+                'ok' => false,
+                'reply' => 'لم يتم تحديد المزود.',
+                'error' => 'provider missing',
+            ], 422);
+        }
+
+        if (!in_array($cfg['provider'], ['ollama']) && empty($cfg['api_key'])) {
+            return response()->json([
+                'ok' => false,
+                'reply' => 'مفتاح API مفقود.',
+                'error' => 'api_key missing',
+            ], 422);
+        }
+
+        $messages = [
+            ['role' => 'system', 'content' => 'You are a connectivity probe. Reply with one short Arabic word.'],
+            ['role' => 'user',   'content' => 'قل: نجح'],
+        ];
+
+        $startedAt = microtime(true);
+        $result = $this->callAi($cfg, $messages, 32, 0.2, 30);
+        $elapsedMs = (int) round((microtime(true) - $startedAt) * 1000);
+
+        return response()->json([
+            'ok'         => $result['ok'],
+            'reply'      => $result['content'],
+            'error'      => $result['error'],
+            'http_code'  => $result['http_code'],
+            'elapsed_ms' => $elapsedMs,
+            'provider'   => $cfg['provider'],
+            'model'      => $cfg['model'],
+        ], $result['ok'] ? 200 : 422);
     }
 
     private function gatherPlatformContext(): string
@@ -236,23 +431,20 @@ class AiController extends Controller
             ['role' => 'user', 'content' => $request->input('message')],
         ];
 
-        try {
-            $reply = $this->callAi($cfg, $messages, 1000, 0.7);
+        $result = $this->callAi($cfg, $messages, 1000, 0.7, 60);
 
-            if ($reply) {
-                return response()->json(['reply' => $reply, 'status' => 'ok']);
-            }
-
-            return response()->json([
-                'reply'  => 'حدث خطأ في الاتصال بخدمة الذكاء الاصطناعي. تأكد من صحة مفتاح API والإعدادات.',
-                'status' => 'error',
-            ], 500);
-        } catch (\Exception $e) {
-            return response()->json([
-                'reply'  => 'تعذر الاتصال بخدمة الذكاء الاصطناعي: ' . $e->getMessage(),
-                'status' => 'error',
-            ], 500);
+        if ($result['ok']) {
+            return response()->json(['reply' => $result['content'], 'status' => 'ok']);
         }
+
+        return response()->json([
+            'reply'  => 'تعذر الاتصال بخدمة الذكاء الاصطناعي: ' . ($result['error'] ?? 'سبب غير معروف'),
+            'status' => 'error',
+            'error'  => $result['error'],
+            'http_code' => $result['http_code'],
+            'provider'  => $cfg['provider'],
+            'model'     => $cfg['model'],
+        ], 200); // 200 so the frontend can read the body easily
     }
 
     public function insights(): JsonResponse
@@ -274,21 +466,21 @@ class AiController extends Controller
 
 {$context}";
 
-        try {
-            $reply = $this->callAi($cfg, [['role' => 'user', 'content' => $prompt]], 600, 0.5);
+        $result = $this->callAi($cfg, [['role' => 'user', 'content' => $prompt]], 600, 0.5, 45);
 
-            if ($reply) {
-                $raw = preg_replace('/^```json\s*|```$/m', '', trim($reply));
-                $insights = json_decode($raw, true);
-                if (is_array($insights) && count($insights) > 0) {
-                    return response()->json(['insights' => $insights, 'source' => 'ai']);
-                }
+        if ($result['ok'] && $result['content']) {
+            $raw = preg_replace('/^```json\s*|```$/m', '', trim($result['content']));
+            $insights = json_decode($raw, true);
+            if (is_array($insights) && count($insights) > 0) {
+                return response()->json(['insights' => $insights, 'source' => 'ai']);
             }
-        } catch (\Exception $e) {
-            // fallback
         }
 
-        return response()->json(['insights' => $this->getLocalInsights(), 'source' => 'local']);
+        return response()->json([
+            'insights' => $this->getLocalInsights(),
+            'source'   => 'local',
+            'ai_error' => $result['error'] ?? null,
+        ]);
     }
 
     private function getLocalInsights(): array
@@ -358,20 +550,16 @@ class AiController extends Controller
 القيمة الحالية: {$request->value}
 أعطني 3 اقتراحات مناسبة كـ JSON array من strings فقط بدون أي نص إضافي.";
 
-        try {
-            $reply = $this->callAi($cfg, [['role' => 'user', 'content' => $prompt]], 200, 0.6);
+        $result = $this->callAi($cfg, [['role' => 'user', 'content' => $prompt]], 200, 0.6, 30);
 
-            if ($reply) {
-                $raw = preg_replace('/^```json\s*|```$/m', '', trim($reply));
-                $suggestions = json_decode($raw, true);
-                if (is_array($suggestions)) {
-                    return response()->json(['suggestions' => $suggestions]);
-                }
+        if ($result['ok'] && $result['content']) {
+            $raw = preg_replace('/^```json\s*|```$/m', '', trim($result['content']));
+            $suggestions = json_decode($raw, true);
+            if (is_array($suggestions)) {
+                return response()->json(['suggestions' => $suggestions]);
             }
-        } catch (\Exception $e) {
-            // silent
         }
 
-        return response()->json(['suggestions' => []]);
+        return response()->json(['suggestions' => [], 'ai_error' => $result['error'] ?? null]);
     }
 }

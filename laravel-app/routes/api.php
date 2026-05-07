@@ -72,6 +72,7 @@ Route::prefix('v1')->group(function () {
 
         // AI
         Route::post('/ai/chat', [AiController::class, 'chat']);
+        Route::post('/ai/test', [AiController::class, 'test']);
         Route::get('/ai/insights', [AiController::class, 'insights']);
         Route::post('/ai/suggest', [AiController::class, 'suggest']);
 
