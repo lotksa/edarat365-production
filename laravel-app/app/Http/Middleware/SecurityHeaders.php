@@ -32,7 +32,10 @@ class SecurityHeaders
              . "font-src 'self' https://fonts.gstatic.com data:; "
              . "img-src 'self' data: blob: https:; "
              . "connect-src 'self' https: {$cfApi}; "
-             . "frame-ancestors 'none'; "
+             // 'self' (not 'none') so the SPA can preview uploaded PDFs / images
+             // in <iframe>s served from /storage/* on the same origin. External
+             // sites are still blocked from framing us (clickjacking defence).
+             . "frame-ancestors 'self'; "
              . "form-action 'self'; "
              . "base-uri 'self'; "
              . "object-src 'none'; "
@@ -46,7 +49,10 @@ class SecurityHeaders
             $response->headers->set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
         }
 
-        $response->headers->set('X-Frame-Options', 'DENY');
+        // SAMEORIGIN (not DENY) so we can iframe our own /storage/* assets for
+        // PDF / document previews. Modern browsers honour the CSP `frame-ancestors`
+        // directive above; XFO here is a fallback for legacy clients.
+        $response->headers->set('X-Frame-Options', 'SAMEORIGIN');
         $response->headers->set('X-Content-Type-Options', 'nosniff');
         $response->headers->set('X-XSS-Protection', '0');
         $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
