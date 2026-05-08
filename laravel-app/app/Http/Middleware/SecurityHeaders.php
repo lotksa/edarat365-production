@@ -19,12 +19,19 @@ class SecurityHeaders
 
         // Content Security Policy — relaxed enough for the SPA but prevents inline JS injection.
         // The Vue app is served from same-origin; fonts come from Google Fonts.
+        // Cloudflare Insights beacon (web analytics) is allowed because the
+        // domain proxies through Cloudflare and CF auto-injects the beacon.
+        $cf = "https://static.cloudflareinsights.com";
+        $cfApi = "https://cloudflareinsights.com";
+        $scriptSrc = "'self' 'unsafe-inline' 'unsafe-eval' {$cf}";
+
         $csp = "default-src 'self'; "
-             . "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+             . "script-src {$scriptSrc}; "
+             . "script-src-elem {$scriptSrc}; "
              . "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
              . "font-src 'self' https://fonts.gstatic.com data:; "
              . "img-src 'self' data: blob: https:; "
-             . "connect-src 'self' https:; "
+             . "connect-src 'self' https: {$cfApi}; "
              . "frame-ancestors 'none'; "
              . "form-action 'self'; "
              . "base-uri 'self'; "

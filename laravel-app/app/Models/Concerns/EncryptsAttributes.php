@@ -63,6 +63,13 @@ trait EncryptsAttributes
 
     /**
      * Decrypt on the way out.
+     *
+     * SECURITY: when decryption fails we MUST distinguish between two cases:
+     *   1. The value is legacy plaintext → return as-is so existing rows
+     *      continue to read correctly during migration.
+     *   2. The value looks like our ciphertext but the MAC fails (truncation,
+     *      APP_KEY mismatch, double-encryption, etc.) → return null instead
+     *      of leaking the ciphertext blob into API responses / the UI.
      */
     public function getAttribute($key)
     {
@@ -71,6 +78,14 @@ trait EncryptsAttributes
             try {
                 return Crypt::decryptString($value);
             } catch (\Throwable $e) {
+                // Heuristic: Laravel's Crypt::encryptString output is base64
+                // of a JSON envelope, so a base64-decoded value that starts
+                // with '{"iv":' is one of ours. If it looks like ciphertext
+                // but we can't read it, fail closed and hide the blob.
+                $decoded = base64_decode($value, true);
+                if (is_string($decoded) && str_starts_with($decoded, '{"iv":')) {
+                    return null;
+                }
                 // Legacy plaintext → return as-is so existing rows still work
                 return $value;
             }
