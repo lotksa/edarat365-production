@@ -16,13 +16,16 @@ deployment:
     # storage/ and bootstrap/cache writable by the PHP-FPM user — see notes below.
     - /bin/find $LARAVEL_APP -type f -exec /bin/chmod 644 {} \; 2>/dev/null || true
     - /bin/find $LARAVEL_APP -type d -exec /bin/chmod 755 {} \; 2>/dev/null || true
-    # SECURITY: .env contains DB credentials, APP_KEY and provider secrets — make
-    # it readable only by the cPanel user; the PHP CLI process inherits owner.
-    - /bin/chmod 600 $LARAVEL_APP/.env 2>/dev/null || true
-    # SECURITY: explicitly block public access to sensitive files even if a misconfigured
-    # vhost ever exposed them.
-    - /bin/chmod 600 $LARAVEL_APP/.env.production 2>/dev/null || true
-    - /bin/chmod 600 $LARAVEL_APP/.env.example 2>/dev/null || true
+    # .env contains DB credentials, APP_KEY and provider secrets.
+    # On THIS cPanel host PHP-FPM runs as `nobody`, NOT as the cPanel user, so
+    # chmod 600 makes .env unreadable to PHP and 500s every API request. We
+    # therefore use 0644 — HTTP access is already blocked by the
+    # `<FilesMatch "^\."> Require all denied` rule in public_html/.htaccess
+    # and the cPanel home directory itself is 0711 so other shared-server
+    # users still cannot list it.
+    - /bin/chmod 644 $LARAVEL_APP/.env 2>/dev/null || true
+    - /bin/chmod 644 $LARAVEL_APP/.env.production 2>/dev/null || true
+    - /bin/chmod 644 $LARAVEL_APP/.env.example 2>/dev/null || true
     # PHP-FPM on this cPanel host runs as 'nobody', not as the cPanel user, so
     # framework directories MUST be writable. The parent /home/USER is 711 (cPanel
     # default), preventing 'nobody' from listing siblings.
@@ -40,10 +43,11 @@ deployment:
     - /bin/mkdir -p $LARAVEL_APP/storage/framework/views
     - /bin/mkdir -p $LARAVEL_APP/storage/framework/testing
     - /bin/chmod -R 777 $LARAVEL_APP/storage/framework 2>/dev/null || true
-    # Make seeded credentials file (if any) readable only by owner.
-    - /bin/chmod 600 $LARAVEL_APP/storage/app/seeded-admin-credentials.txt 2>/dev/null || true
-    # Tighten any composer/php config metadata that should never be world readable.
-    - /bin/chmod 600 $LARAVEL_APP/composer.lock 2>/dev/null || true
+    # Same rationale as .env: PHP-FPM runs as `nobody` so 0600 here would
+    # break composer autoloading at runtime. 0644 is HTTP-blocked by the
+    # FilesMatch rule in .htaccess and the parent dir is 0711.
+    - /bin/chmod 644 $LARAVEL_APP/composer.lock 2>/dev/null || true
+    - /bin/chmod 644 $LARAVEL_APP/storage/app/seeded-admin-credentials.txt 2>/dev/null || true
     # Clear stale package/service cache that pins old middleware aliases
     - /bin/rm -f $LARAVEL_APP/bootstrap/cache/services.php
     - /bin/rm -f $LARAVEL_APP/bootstrap/cache/packages.php
