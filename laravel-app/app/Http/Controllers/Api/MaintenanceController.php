@@ -62,7 +62,7 @@ class MaintenanceController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $request->validate([
+        $data = $request->validate([
             'association_id' => 'nullable|exists:associations,id',
             'property_id' => 'nullable|exists:properties,id',
             'owner_id' => 'nullable|exists:owners,id',
@@ -70,22 +70,22 @@ class MaintenanceController extends Controller
             'title' => 'required|string|max:255',
             'type' => 'nullable|string|max:100',
             'category' => 'nullable|string|max:100',
-            'description' => 'nullable|string',
+            'description' => 'nullable|string|max:5000',
             'location' => 'nullable|string|max:255',
             'priority' => 'required|string|in:low,medium,high,urgent',
             'status' => 'nullable|string|in:open,in_progress,on_hold,completed,closed,cancelled',
             'assigned_to' => 'nullable|string|max:255',
-            'assigned_phone' => 'nullable|string|max:50',
-            'estimated_cost' => 'nullable|numeric|min:0',
-            'actual_cost' => 'nullable|numeric|min:0',
+            'assigned_phone' => 'nullable|string|max:50|regex:/^[\d+\-() ]{6,50}$/',
+            'estimated_cost' => 'nullable|numeric|min:0|max:100000000',
+            'actual_cost' => 'nullable|numeric|min:0|max:100000000',
             'scheduled_date' => 'nullable|date',
-            'images' => 'nullable|array',
+            'images' => 'nullable|array|max:20',
+            'images.*' => 'string|max:1024',
         ]);
 
-        $payload = $request->all();
-        if (!isset($payload['status'])) $payload['status'] = 'open';
-
-        $item = MaintenanceRequest::create($payload);
+        if (!isset($data['status'])) $data['status'] = 'open';
+        // SECURITY: only validated keys reach the model.
+        $item = MaintenanceRequest::create($data);
         $item->load(['association', 'property', 'unit', 'owner']);
 
         return response()->json(['data' => $item, 'message' => 'created'], 201);
@@ -95,29 +95,30 @@ class MaintenanceController extends Controller
     {
         $item = MaintenanceRequest::findOrFail($id);
 
-        $request->validate([
+        $data = $request->validate([
             'title' => 'sometimes|string|max:255',
             'type' => 'nullable|string|max:100',
             'category' => 'nullable|string|max:100',
-            'description' => 'nullable|string',
+            'description' => 'nullable|string|max:5000',
             'location' => 'nullable|string|max:255',
             'priority' => 'sometimes|string|in:low,medium,high,urgent',
             'status' => 'sometimes|string|in:open,in_progress,on_hold,completed,closed,cancelled',
             'assigned_to' => 'nullable|string|max:255',
-            'assigned_phone' => 'nullable|string|max:50',
-            'estimated_cost' => 'nullable|numeric|min:0',
-            'actual_cost' => 'nullable|numeric|min:0',
+            'assigned_phone' => 'nullable|string|max:50|regex:/^[\d+\-() ]{6,50}$/',
+            'estimated_cost' => 'nullable|numeric|min:0|max:100000000',
+            'actual_cost' => 'nullable|numeric|min:0|max:100000000',
             'scheduled_date' => 'nullable|date',
             'completed_date' => 'nullable|date',
-            'resolution_notes' => 'nullable|string',
+            'resolution_notes' => 'nullable|string|max:5000',
             'rating' => 'nullable|integer|min:1|max:5',
-            'images' => 'nullable|array',
+            'images' => 'nullable|array|max:20',
+            'images.*' => 'string|max:1024',
         ]);
 
         $oldStatus = $item->status;
-        $item->update($request->all());
+        $item->update($data);
 
-        if ($oldStatus !== 'completed' && $request->status === 'completed' && !$item->completed_date) {
+        if ($oldStatus !== 'completed' && ($data['status'] ?? null) === 'completed' && !$item->completed_date) {
             $item->update(['completed_date' => now()->toDateString()]);
         }
 

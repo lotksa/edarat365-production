@@ -47,3 +47,23 @@ ServerSignature Off
 <FilesMatch "\.(env|log|sql|sqlite|sqlite3|bak|backup|swp|swo|orig|save|pem|key|crt|p12|pfx|md|lock|composer\.json|composer\.lock|package\.json|yarn\.lock|phpunit\.xml|inc|tpl)$">
     Require all denied
 </FilesMatch>
+
+# ─── Block direct access to Laravel internal storage trees ──────────────────
+# Only public uploads (storage/app/public via storage:link) should be reachable.
+# storage/framework (sessions, cache, views) and storage/logs MUST stay private.
+RedirectMatch 404 /storage/(framework|logs|private|app(?!/public))(/|$)
+
+# Block executable types in user-upload paths (defense-in-depth in case a
+# bad upload validation slips through).
+<FilesMatch "\.(php|phtml|php\d?|phar|pl|py|pyc|cgi|sh|asp|aspx|exe|jsp|rb)$">
+    <If "%{REQUEST_URI} =~ m#^/storage/#">
+        Require all denied
+    </If>
+</FilesMatch>
+
+# ─── Security headers (mirrors Laravel SecurityHeaders middleware) ──────────
+<IfModule mod_headers.c>
+    Header always set Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=(), interest-cohort=()"
+    Header always set Cross-Origin-Opener-Policy "same-origin"
+    Header always set Cross-Origin-Resource-Policy "same-site"
+</IfModule>

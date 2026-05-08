@@ -14,6 +14,10 @@ ServerSignature Off
     # Don't rewrite API requests
     RewriteRule ^api/ - [L]
 
+    # /storage/<...> → /api/storage/<...>  (Laravel public-disk uploads)
+    # Avoids breaking attachment URLs returned by the API as "/storage/..."
+    RewriteRule ^storage/(.*)$ /api/storage/$1 [L,QSA]
+
     # Block path traversal attempts
     RewriteCond %{THE_REQUEST} \s/+(.*)\.\.(.*)\s [NC]
     RewriteRule ^ - [F,L]
@@ -75,8 +79,11 @@ ServerSignature Off
     Require all denied
 </FilesMatch>
 
-# Block any access to vendor / storage / framework / node_modules paths
-RedirectMatch 404 /(vendor|storage|bootstrap/cache|node_modules|tests|database|config|app|routes|resources)(/|$)
+# Block any access to vendor / framework / build paths.
+# Note: /storage is intentionally allowed here so user-upload URLs like
+# /storage/properties/<id>/documents/<file> work via the rewrite to /api/storage above.
+# Backend storage internals (framework, logs, etc.) are protected on the API side.
+RedirectMatch 404 /(vendor|bootstrap/cache|node_modules|tests|database|config|app|routes|resources)(/|$)
 
 # ─── Compression ─────────────────────────────────────────────────────────────
 <IfModule mod_deflate.c>

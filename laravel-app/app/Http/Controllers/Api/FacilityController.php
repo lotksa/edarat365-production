@@ -49,23 +49,27 @@ class FacilityController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $request->validate([
+        $data = $request->validate([
             'association_id' => 'required|exists:associations,id',
+            'property_id' => 'nullable|exists:properties,id',
             'name' => 'required|string|max:255',
             'facility_type' => 'required|string|max:100',
-            'description' => 'nullable|string',
-            'is_active' => 'boolean',
-            'is_bookable' => 'boolean',
-            'capacity' => 'nullable|integer|min:1',
-            'hourly_rate' => 'nullable|numeric|min:0',
+            'description' => 'nullable|string|max:5000',
+            'is_active' => 'nullable|boolean',
+            'is_bookable' => 'nullable|boolean',
+            'capacity' => 'nullable|integer|min:1|max:100000',
+            'hourly_rate' => 'nullable|numeric|min:0|max:1000000',
             'location_detail' => 'nullable|string|max:255',
-            'operating_hours_start' => 'nullable|string|max:5',
-            'operating_hours_end' => 'nullable|string|max:5',
-            'images' => 'nullable|array',
-            'rules' => 'nullable|array',
+            'operating_hours_start' => 'nullable|string|max:5|regex:/^[0-2]\d:[0-5]\d$/',
+            'operating_hours_end' => 'nullable|string|max:5|regex:/^[0-2]\d:[0-5]\d$/',
+            'images' => 'nullable|array|max:20',
+            'images.*' => 'string|max:1024',
+            'rules' => 'nullable|array|max:50',
+            'rules.*' => 'string|max:1000',
         ]);
 
-        $facility = Facility::create($request->all());
+        // SECURITY: only validated keys reach the model — prevents mass assignment of arbitrary columns.
+        $facility = Facility::create($data);
         return response()->json(['data' => $facility, 'message' => 'created'], 201);
     }
 
@@ -73,22 +77,24 @@ class FacilityController extends Controller
     {
         $facility = Facility::findOrFail($id);
 
-        $request->validate([
+        $data = $request->validate([
             'name' => 'sometimes|string|max:255',
             'facility_type' => 'sometimes|string|max:100',
-            'description' => 'nullable|string',
-            'is_active' => 'boolean',
-            'is_bookable' => 'boolean',
-            'capacity' => 'nullable|integer|min:1',
-            'hourly_rate' => 'nullable|numeric|min:0',
+            'description' => 'nullable|string|max:5000',
+            'is_active' => 'nullable|boolean',
+            'is_bookable' => 'nullable|boolean',
+            'capacity' => 'nullable|integer|min:1|max:100000',
+            'hourly_rate' => 'nullable|numeric|min:0|max:1000000',
             'location_detail' => 'nullable|string|max:255',
-            'operating_hours_start' => 'nullable|string|max:5',
-            'operating_hours_end' => 'nullable|string|max:5',
-            'images' => 'nullable|array',
-            'rules' => 'nullable|array',
+            'operating_hours_start' => 'nullable|string|max:5|regex:/^[0-2]\d:[0-5]\d$/',
+            'operating_hours_end' => 'nullable|string|max:5|regex:/^[0-2]\d:[0-5]\d$/',
+            'images' => 'nullable|array|max:20',
+            'images.*' => 'string|max:1024',
+            'rules' => 'nullable|array|max:50',
+            'rules.*' => 'string|max:1000',
         ]);
 
-        $facility->update($request->all());
+        $facility->update($data);
         return response()->json(['data' => $facility, 'message' => 'updated']);
     }
 
@@ -176,60 +182,64 @@ class FacilityController extends Controller
 
     public function book(int $id, Request $request): JsonResponse
     {
-        $facility = Facility::findOrFail($id);
-
-        if (!$facility->is_bookable) {
-            return response()->json(['message' => 'facility_not_bookable'], 400);
-        }
-
-        $request->validate([
+        $data = $request->validate([
             'owner_id' => 'nullable|exists:owners,id',
             'date' => 'required|date|after_or_equal:today',
-            'start_time' => 'required|string',
-            'notes' => 'nullable|string',
+            'start_time' => 'required|string|regex:/^[0-2]\d:[0-5]\d$/',
+            'notes' => 'nullable|string|max:2000',
         ]);
 
-        $date = $request->date;
-        $startTime = $request->start_time;
-        $startsAt = Carbon::parse("{$date} {$startTime}");
-        $endsAt = $startsAt->copy()->addHour();
+        // SECURITY: wrap in a serialized transaction so that two concurrent
+        // bookings on the same slot cannot both succeed (TOCTOU race).
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($id, $data) {
+            $facility = Facility::lockForUpdate()->findOrFail($id);
 
-        if ($request->filled('owner_id')) {
-            $alreadyBooked = Booking::where('facility_id', $id)
-                ->where('owner_id', $request->owner_id)
-                ->whereDate('starts_at', $date)
+            if (!$facility->is_bookable) {
+                return response()->json(['message' => 'facility_not_bookable'], 400);
+            }
+
+            $startsAt = Carbon::parse("{$data['date']} {$data['start_time']}");
+            $endsAt = $startsAt->copy()->addHour();
+
+            if (!empty($data['owner_id'])) {
+                $alreadyBooked = Booking::where('facility_id', $id)
+                    ->where('owner_id', $data['owner_id'])
+                    ->whereDate('starts_at', $data['date'])
+                    ->where('status', 'approved')
+                    ->lockForUpdate()
+                    ->exists();
+
+                if ($alreadyBooked) {
+                    return response()->json(['message' => 'owner_already_booked_today'], 422);
+                }
+            }
+
+            $conflict = Booking::where('facility_id', $id)
+                ->whereDate('starts_at', $data['date'])
                 ->where('status', 'approved')
+                ->where(fn($q) => $q->where('starts_at', '<', $endsAt)->where('ends_at', '>', $startsAt))
+                ->lockForUpdate()
                 ->exists();
 
-            if ($alreadyBooked) {
-                return response()->json(['message' => 'owner_already_booked_today'], 422);
+            if ($conflict) {
+                return response()->json(['message' => 'slot_already_booked'], 422);
             }
-        }
 
-        $conflict = Booking::where('facility_id', $id)
-            ->whereDate('starts_at', $date)
-            ->where('status', 'approved')
-            ->where(fn($q) => $q->where('starts_at', '<', $endsAt)->where('ends_at', '>', $startsAt))
-            ->exists();
+            $booking = Booking::create([
+                'facility_id' => $id,
+                'association_id' => $facility->association_id,
+                'owner_id' => $data['owner_id'] ?? null,
+                'starts_at' => $startsAt,
+                'ends_at' => $endsAt,
+                'status' => 'approved',
+                'booked_by' => !empty($data['owner_id']) ? 'owner' : 'admin',
+                'notes' => $data['notes'] ?? null,
+            ]);
 
-        if ($conflict) {
-            return response()->json(['message' => 'slot_already_booked'], 422);
-        }
+            $booking->load('owner', 'facility');
 
-        $booking = Booking::create([
-            'facility_id' => $id,
-            'association_id' => $facility->association_id,
-            'owner_id' => $request->owner_id,
-            'starts_at' => $startsAt,
-            'ends_at' => $endsAt,
-            'status' => 'approved',
-            'booked_by' => $request->owner_id ? 'owner' : 'admin',
-            'notes' => $request->notes,
-        ]);
-
-        $booking->load('owner', 'facility');
-
-        return response()->json(['data' => $booking, 'message' => 'booked'], 201);
+            return response()->json(['data' => $booking, 'message' => 'booked'], 201);
+        });
     }
 
     public function cancelBooking(int $bookingId): JsonResponse

@@ -15,6 +15,17 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->append(\App\Http\Middleware\NoIndexHeaders::class);
         $middleware->append(\App\Http\Middleware\SecurityHeaders::class);
 
+        // SECURITY: trust proxies (Cloudflare/cPanel) so that real client IPs
+        // and the X-Forwarded-Proto=https header are honored.
+        $middleware->trustProxies(
+            at: env('TRUSTED_PROXIES', '*') === '*' ? '*' : array_filter(array_map('trim', explode(',', (string) env('TRUSTED_PROXIES')))),
+            headers: \Illuminate\Http\Request::HEADER_X_FORWARDED_FOR
+                | \Illuminate\Http\Request::HEADER_X_FORWARDED_HOST
+                | \Illuminate\Http\Request::HEADER_X_FORWARDED_PORT
+                | \Illuminate\Http\Request::HEADER_X_FORWARDED_PROTO
+                | \Illuminate\Http\Request::HEADER_X_FORWARDED_AWS_ELB
+        );
+
         $middleware->alias([
             'permission'     => \App\Http\Middleware\CheckPermission::class,
             'auth.throttle'  => \App\Http\Middleware\LoginThrottle::class,

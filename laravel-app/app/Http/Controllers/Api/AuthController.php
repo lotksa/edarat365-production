@@ -120,6 +120,25 @@ class AuthController extends Controller
 
         $this->assertNotLocked($user, $identifier);
 
+        // SECURITY: cooldown to prevent OTP spam / SMS pumping against a real
+        // account. 30s between requests for the same identifier.
+        $cooldownKey = 'otp_cooldown:' . sha1($identifier . '|' . $purpose);
+        if (cache()->has($cooldownKey)) {
+            SecurityAuditLog::record('auth.otp.requested', 'failed', [
+                'reason' => 'cooldown',
+            ], $user, $identifier, null, $request);
+            $channel = $this->otp->detectChannel($identifier);
+            return response()->json([
+                'message'           => 'Verification code sent',
+                'channel'           => $channel,
+                'purpose'           => $purpose,
+                'masked_identifier' => $this->maskIdentifier($identifier, $channel),
+                'expires_in_seconds' => 600,
+                'delivered'         => false,
+            ]);
+        }
+        cache()->put($cooldownKey, 1, now()->addSeconds(30));
+
         $channel = $this->otp->detectChannel($identifier);
         $otp = $this->otp->createOtp($identifier, $channel, $purpose, 10);
         $delivery = $this->otp->send($otp, $user->name);

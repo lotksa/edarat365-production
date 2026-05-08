@@ -292,8 +292,14 @@ class ExportImportController extends Controller
             try {
                 $modelClass::create($data);
                 $created++;
-            } catch (\Exception $e) {
-                $errors[] = "سطر {$lineNum}: " . $e->getMessage();
+            } catch (\Throwable $e) {
+                // SECURITY: never leak DB column names / SQL state to clients.
+                // Log details server-side; surface a generic per-row error to user.
+                \Illuminate\Support\Facades\Log::warning('Import row failed', [
+                    'line'  => $lineNum,
+                    'error' => $e->getMessage(),
+                ]);
+                $errors[] = "سطر {$lineNum}: تعذّر استيراد البيانات";
                 if (count($errors) > 10) break;
             }
         }

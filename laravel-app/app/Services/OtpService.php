@@ -28,6 +28,20 @@ class OtpService
     }
 
     /**
+     * Mask a PII identifier for safe logging (no full email/phone in logs).
+     */
+    private function maskIdentifier(string $identifier): string
+    {
+        if (filter_var($identifier, FILTER_VALIDATE_EMAIL)) {
+            [$name, $domain] = explode('@', $identifier, 2) + ['', ''];
+            $maskedName = strlen($name) <= 2 ? $name : substr($name, 0, 2) . str_repeat('*', max(0, strlen($name) - 2));
+            return $maskedName . '@' . $domain;
+        }
+        $digits = preg_replace('/\D/', '', $identifier) ?? '';
+        return strlen($digits) >= 4 ? str_repeat('*', max(0, strlen($digits) - 4)) . substr($digits, -4) : '****';
+    }
+
+    /**
      * Cryptographically-secure 6-digit OTP. No predictable values in any environment.
      */
     public function generateCode(): string
@@ -222,19 +236,34 @@ class OtpService
             $mailSettings = Setting::getByKey('mail', []);
             $this->configureMailRuntime($mailSettings);
 
-            Mail::send([], [], function (Message $message) use ($to, $subject, $htmlBody, $mailSettings) {
+            // SECURITY: strip CR/LF from headers to prevent email header
+            // injection (CRLF attacks) when subject/from come from settings.
+            $safeSubject = trim(preg_replace('/[\r\n]+/', ' ', (string) $subject) ?? '');
+            if ($safeSubject === '') $safeSubject = 'Edarat365';
+            $safeFrom = isset($mailSettings['from_address'])
+                ? trim(preg_replace('/[\r\n]+/', '', (string) $mailSettings['from_address']) ?? '')
+                : '';
+            $safeFromName = isset($mailSettings['from_name'])
+                ? trim(preg_replace('/[\r\n]+/', ' ', (string) $mailSettings['from_name']) ?? '')
+                : 'Edarat365';
+
+            Mail::send([], [], function (Message $message) use ($to, $safeSubject, $htmlBody, $safeFrom, $safeFromName) {
                 $message->to($to);
-                $message->subject($subject);
+                $message->subject($safeSubject);
                 $message->html($htmlBody);
 
-                if (!empty($mailSettings['from_address'])) {
-                    $message->from($mailSettings['from_address'], $mailSettings['from_name'] ?? 'Edarat365');
+                if ($safeFrom !== '' && filter_var($safeFrom, FILTER_VALIDATE_EMAIL)) {
+                    $message->from($safeFrom, $safeFromName ?: 'Edarat365');
                 }
             });
 
             return true;
         } catch (\Throwable $e) {
-            Log::warning('OTP email failed: ' . $e->getMessage(), ['to' => $to]);
+            // SECURITY: never log raw PII (email/phone). Use a masked identifier.
+            Log::warning('OTP email failed', [
+                'to_masked' => $this->maskIdentifier($to),
+                'error'     => $e->getMessage(),
+            ]);
             return false;
         }
     }
@@ -262,7 +291,7 @@ class OtpService
         try {
             $sms = Setting::getByKey('sms', []);
             if (empty($sms['provider']) || empty($sms['api_url']) || empty($sms['api_key'])) {
-                Log::info('SMS provider not configured; skipping send.', ['to' => $to]);
+                Log::info('SMS provider not configured; skipping send.', ['to_masked' => $this->maskIdentifier($to)]);
                 return false;
             }
 
@@ -277,7 +306,10 @@ class OtpService
 
             return $response->successful();
         } catch (\Throwable $e) {
-            Log::warning('OTP SMS failed: ' . $e->getMessage(), ['to' => $to]);
+            Log::warning('OTP SMS failed', [
+                'to_masked' => $this->maskIdentifier($to),
+                'error'     => $e->getMessage(),
+            ]);
             return false;
         }
     }

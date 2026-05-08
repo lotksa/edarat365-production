@@ -36,10 +36,21 @@ echo "[OK] .env configured (APP_KEY generated, DB credentials set)"
 
 echo "=== [2/8] Importing database SQL ==="
 SQL_FILE="$REPO_DIR/database/edarat365.sql"
+# SECURITY: pass DB_PASSWORD via a defaults-extra-file (chmod 600) instead of
+# `-pXXX` on the CLI, which leaks the password in `ps`/process listings.
+MY_CNF="$(mktemp)"
+trap 'rm -f "$MY_CNF"' EXIT
+{
+    echo "[client]"
+    echo "user=$DB_USERNAME"
+    echo "password=$DB_PASSWORD"
+} > "$MY_CNF"
+chmod 600 "$MY_CNF"
+
 if [ -f "$SQL_FILE" ]; then
     # Strip BOM if present
     sed -i '1s/^\xEF\xBB\xBF//' "$SQL_FILE"
-    mysql --binary-mode -u "$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE" < "$SQL_FILE" 2>&1 | head -20
+    mysql --defaults-extra-file="$MY_CNF" --binary-mode "$DB_DATABASE" < "$SQL_FILE" 2>&1 | head -20
     if [ $? -eq 0 ]; then
         echo "[OK] Database imported"
     else
@@ -138,7 +149,7 @@ echo "[OK] Laravel cached"
 
 echo "=== [7/8] Running pending migrations and seed (if empty DB) ==="
 cd "$LARAVEL_APP"
-TABLES_COUNT=$(mysql -u "$DB_USERNAME" -p"$DB_PASSWORD" -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB_DATABASE'" 2>/dev/null)
+TABLES_COUNT=$(mysql --defaults-extra-file="$MY_CNF" -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB_DATABASE'" 2>/dev/null)
 echo "Existing tables: $TABLES_COUNT"
 if [ "$TABLES_COUNT" -lt 5 ]; then
     echo "DB looks empty - running fresh migration with seed"
@@ -149,10 +160,15 @@ fi
 echo "[OK] Migrations done"
 
 echo "=== [8/8] Final permissions ==="
-chmod -R 755 "$LARAVEL_APP"
+# Files: 644, dirs: 755
+find "$LARAVEL_APP" -type f -exec chmod 644 {} \; 2>/dev/null
+find "$LARAVEL_APP" -type d -exec chmod 755 {} \; 2>/dev/null
 chmod -R 777 "$LARAVEL_APP/storage"
 chmod -R 777 "$LARAVEL_APP/bootstrap/cache"
 chmod 600 "$LARAVEL_APP/.env"
+chmod 600 "$LARAVEL_APP/.env.example" 2>/dev/null || true
+chmod 600 "$LARAVEL_APP/composer.lock" 2>/dev/null || true
+chmod 600 "$LARAVEL_APP/storage/app/seeded-admin-credentials.txt" 2>/dev/null || true
 echo "[OK] Permissions set"
 
 echo ""

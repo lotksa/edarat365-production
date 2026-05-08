@@ -305,7 +305,8 @@ class AiController extends Controller
 
     /**
      * Lightweight test connection endpoint. Sends a tiny "ping" prompt and
-     * returns detailed diagnostics (HTTP code, latency, error if any).
+     * returns minimal diagnostics. Sensitive fields like raw payloads or
+     * stack traces are NEVER returned to the client.
      * Accepts optional override (api_key, provider, model, custom_url) so the
      * user can test before saving.
      */
@@ -313,14 +314,16 @@ class AiController extends Controller
     {
         $request->validate([
             'api_key'    => 'nullable|string|max:500',
-            'provider'   => 'nullable|string|max:50',
+            // SECURITY: only allow known providers.
+            'provider'   => 'nullable|string|in:openai,deepseek,groq,openrouter,gemini,ollama,custom',
             'model'      => 'nullable|string|max:200',
-            'custom_url' => 'nullable|string|max:500',
+            // SECURITY: custom_url must be a public HTTPS URL. Blocks SSRF to
+            // localhost/loopback/private ranges and unencrypted HTTP.
+            'custom_url' => ['nullable', 'string', 'max:500', 'url', new \App\Rules\PublicHttpsUrl()],
         ]);
 
         $override = array_filter($request->only(['api_key', 'provider', 'model', 'custom_url']), fn ($v) => $v !== null && $v !== '');
 
-        // Merge override over saved settings so a partial override (e.g. just api_key) still works
         $saved = Setting::getByKey('ai', []);
         $merged = array_merge(is_array($saved) ? $saved : [], $override);
         $cfg = $this->getAiConfig($merged);
@@ -350,10 +353,12 @@ class AiController extends Controller
         $result = $this->callAi($cfg, $messages, 32, 0.2, 30);
         $elapsedMs = (int) round((microtime(true) - $startedAt) * 1000);
 
+        // SECURITY: never return the raw provider response (may contain echoed
+        // headers, debug data). Only return short, sanitized error message.
         return response()->json([
             'ok'         => $result['ok'],
-            'reply'      => $result['content'],
-            'error'      => $result['error'],
+            'reply'      => $result['content'] ? mb_substr($result['content'], 0, 300) : null,
+            'error'      => $result['error'] ? mb_substr((string) $result['error'], 0, 300) : null,
             'http_code'  => $result['http_code'],
             'elapsed_ms' => $elapsedMs,
             'provider'   => $cfg['provider'],
@@ -437,10 +442,16 @@ class AiController extends Controller
             return response()->json(['reply' => $result['content'], 'status' => 'ok']);
         }
 
+        // SECURITY: send a short, generic message to end users. Detailed errors
+        // are written to the server log only.
+        Log::info('AI provider call failed', [
+            'provider'  => $cfg['provider'],
+            'http_code' => $result['http_code'],
+            'error'     => $result['error'],
+        ]);
         return response()->json([
-            'reply'  => 'تعذر الاتصال بخدمة الذكاء الاصطناعي: ' . ($result['error'] ?? 'سبب غير معروف'),
+            'reply'  => 'تعذر الاتصال بخدمة الذكاء الاصطناعي. يرجى المحاولة لاحقاً أو التواصل مع المسؤول.',
             'status' => 'error',
-            'error'  => $result['error'],
             'http_code' => $result['http_code'],
             'provider'  => $cfg['provider'],
             'model'     => $cfg['model'],

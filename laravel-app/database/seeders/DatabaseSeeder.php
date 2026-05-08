@@ -28,6 +28,16 @@ class DatabaseSeeder extends Seeder
 
         $superAdminRole = \App\Models\Role::where('key', 'super_admin')->first();
 
+        // SECURITY: never seed a known/static admin password.
+        // 1) If env(SEED_ADMIN_PASSWORD) is set, use it (integrators/CI may rely on this).
+        // 2) Otherwise, generate a 24-char random password and write it to
+        //    storage/app/seeded-admin-credentials.txt (chmod 600 by Laravel).
+        //    Operators MUST rotate this on first login.
+        $envPassword = env('SEED_ADMIN_PASSWORD');
+        $adminPassword = is_string($envPassword) && strlen($envPassword) >= 12
+            ? $envPassword
+            : \Illuminate\Support\Str::random(24);
+
         $user = User::query()->updateOrCreate(['email' => 'admin@edarat365.com'], [
             'name' => 'Edarat Admin',
             'phone' => '0590592324',
@@ -35,8 +45,23 @@ class DatabaseSeeder extends Seeder
             'role_id' => $superAdminRole?->id,
             'is_active' => true,
             'avatar_url' => 'https://i.pravatar.cc/160?img=12',
-            'password' => Hash::make('password123'),
+            'password' => Hash::make($adminPassword),
+            'password_changed_at' => now(),
         ]);
+
+        if (!is_string($envPassword) || strlen($envPassword) < 12) {
+            $credPath = storage_path('app/seeded-admin-credentials.txt');
+            @file_put_contents(
+                $credPath,
+                "[" . now()->toDateTimeString() . "] admin@edarat365.com :: {$adminPassword}\n",
+                FILE_APPEND | LOCK_EX
+            );
+            @chmod($credPath, 0600);
+            $this->command?->warn(
+                "Admin password generated. Saved to: {$credPath}\n" .
+                "Sign in, change it immediately, and delete that file."
+            );
+        }
 
         $owner = Owner::query()->create([
             'user_id' => $user->id,

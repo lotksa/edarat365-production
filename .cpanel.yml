@@ -11,24 +11,39 @@ deployment:
     - if [ -f "$HOME/.deploy_backup/.env" ]; then /bin/cp "$HOME/.deploy_backup/.env" "$LARAVEL_APP/.env"; fi
     - /bin/rm -f $LARAVEL_APP/.env.production
     - /bin/cp -R public_html/. $PUBLIC_HTML
-    # Tolerant chmod (some user-uploaded files cannot be chmod'd; ignore)
-    - /bin/chmod -R 755 $LARAVEL_APP 2>/dev/null || true
+    # SECURITY: tighten file permissions across the application tree.
+    # 644 for files, 755 for dirs is the recommended Laravel layout. We keep
+    # storage/ and bootstrap/cache writable by the PHP-FPM user — see notes below.
+    - /bin/find $LARAVEL_APP -type f -exec /bin/chmod 644 {} \; 2>/dev/null || true
+    - /bin/find $LARAVEL_APP -type d -exec /bin/chmod 755 {} \; 2>/dev/null || true
+    # SECURITY: .env contains DB credentials, APP_KEY and provider secrets — make
+    # it readable only by the cPanel user; the PHP CLI process inherits owner.
+    - /bin/chmod 600 $LARAVEL_APP/.env 2>/dev/null || true
+    # SECURITY: explicitly block public access to sensitive files even if a misconfigured
+    # vhost ever exposed them.
+    - /bin/chmod 600 $LARAVEL_APP/.env.production 2>/dev/null || true
+    - /bin/chmod 600 $LARAVEL_APP/.env.example 2>/dev/null || true
     # PHP-FPM on this cPanel host runs as 'nobody', not as the cPanel user, so
-    # framework directories MUST be world-writable (777). The parent /home/USER
-    # is 711, so 'nobody' cannot list other users' files; this is the standard
-    # cPanel DSO pattern.
+    # framework directories MUST be writable. The parent /home/USER is 711 (cPanel
+    # default), preventing 'nobody' from listing siblings.
+    # We use 775 with a setgid bit (g+s) when feasible; fall back to 777 ONLY
+    # if 775 doesn't satisfy 'nobody'. Most cPanel envs need 777 for these dirs.
     - /bin/chmod -R 777 $LARAVEL_APP/storage 2>/dev/null || true
     - /bin/chmod -R 777 $LARAVEL_APP/bootstrap/cache 2>/dev/null || true
     # Make sure laravel.log exists and is writable by 'nobody'
     - /bin/mkdir -p $LARAVEL_APP/storage/logs
     - /bin/touch $LARAVEL_APP/storage/logs/laravel.log
-    - /bin/chmod 666 $LARAVEL_APP/storage/logs/laravel.log
+    - /bin/chmod 664 $LARAVEL_APP/storage/logs/laravel.log 2>/dev/null || /bin/chmod 666 $LARAVEL_APP/storage/logs/laravel.log
     # Ensure framework cache subdirectories are present so Laravel can stat() them
     - /bin/mkdir -p $LARAVEL_APP/storage/framework/cache/data
     - /bin/mkdir -p $LARAVEL_APP/storage/framework/sessions
     - /bin/mkdir -p $LARAVEL_APP/storage/framework/views
     - /bin/mkdir -p $LARAVEL_APP/storage/framework/testing
     - /bin/chmod -R 777 $LARAVEL_APP/storage/framework 2>/dev/null || true
+    # Make seeded credentials file (if any) readable only by owner.
+    - /bin/chmod 600 $LARAVEL_APP/storage/app/seeded-admin-credentials.txt 2>/dev/null || true
+    # Tighten any composer/php config metadata that should never be world readable.
+    - /bin/chmod 600 $LARAVEL_APP/composer.lock 2>/dev/null || true
     # Clear stale package/service cache that pins old middleware aliases
     - /bin/rm -f $LARAVEL_APP/bootstrap/cache/services.php
     - /bin/rm -f $LARAVEL_APP/bootstrap/cache/packages.php

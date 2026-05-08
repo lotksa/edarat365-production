@@ -26,6 +26,12 @@ trait EncryptsAttributes
 {
     /**
      * Encrypt on the way in. Also maintain blind-index hash if declared.
+     *
+     * SECURITY: this method MUST fail closed. If Crypt::encryptString() throws
+     * (e.g. APP_KEY is missing/corrupt), we do NOT silently fall back to
+     * persisting the plaintext value — the operation aborts with an exception
+     * so the caller can surface a 500 and the data never lands on disk in the
+     * clear.
      */
     public function setAttribute($key, $value)
     {
@@ -40,6 +46,11 @@ trait EncryptsAttributes
                 $value = Crypt::encryptString((string) $value);
             } catch (\Throwable $e) {
                 Log::error('Encryption failed for ' . static::class . '.' . $key, ['err' => $e->getMessage()]);
+                // FAIL CLOSED: refuse to persist plaintext.
+                throw new \RuntimeException(
+                    'Encryption failed for ' . static::class . '.' . $key
+                    . ' — refusing to write plaintext.'
+                );
             }
         } elseif ($this->isEncryptableAttribute($key) && ($value === null || $value === '')) {
             $hashCol = $this->blindHashColumn($key);

@@ -9,7 +9,6 @@ use App\Models\SecurityAuditLog;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 
 class UserController extends Controller
@@ -92,13 +91,15 @@ class UserController extends Controller
         $role = Role::findOrFail($data['role_id']);
 
         $user = User::create([
-            'name'      => $data['name'],
-            'email'     => $data['email'],
-            'phone'     => $data['phone'] ?? null,
-            'role_id'   => $role->id,
-            'role'      => $role->key,
-            'is_active' => $data['is_active'] ?? true,
-            'password'  => Hash::make($data['password'] ?? str()->random(12)),
+            'name'                 => $data['name'],
+            'email'                => $data['email'],
+            'phone'                => $data['phone'] ?? null,
+            'role_id'              => $role->id,
+            'role'                 => $role->key,
+            'is_active'            => $data['is_active'] ?? true,
+            // The User model's `hashed` cast hashes the password automatically.
+            'password'             => $data['password'] ?? \Illuminate\Support\Str::random(20),
+            'password_changed_at'  => now(),
         ]);
 
         ActivityLog::record('user', $user->id, 'created', 'تم إنشاء مستخدم جديد', null, $user->only(['name','email','phone','role']));
@@ -135,8 +136,9 @@ class UserController extends Controller
             $data['role'] = $role->key;
         }
 
-        if (!empty($data['password'])) {
-            $data['password'] = Hash::make($data['password']);
+        $passwordWasSet = !empty($data['password']);
+        if ($passwordWasSet) {
+            // Rely on the User model's `hashed` cast — never double-hash.
             $data['password_changed_at'] = now();
         } else {
             unset($data['password']);
@@ -151,8 +153,11 @@ class UserController extends Controller
                 'old_role_id' => $oldRoleId,
                 'new_role_id' => $data['role_id'],
             ], auth()->user(), null, ['type' => 'user', 'id' => $user->id]);
+            // SECURITY: revoke active sessions so the new role takes effect immediately
+            // and any stolen pre-change token cannot retain elevated privileges.
+            $user->tokens()->delete();
         }
-        if (isset($data['password'])) {
+        if ($passwordWasSet) {
             SecurityAuditLog::record('auth.password.changed_by_admin', 'success', [], auth()->user(), null, ['type' => 'user', 'id' => $user->id]);
             $user->tokens()->delete();
         }
@@ -196,12 +201,35 @@ class UserController extends Controller
             return response()->json(['message' => 'لا يمكن تعديل حالة حسابك الحالي'], 422);
         }
 
+        // Disallow disabling the last super admin (lock-out protection).
+        if ($user->isSuperAdmin() && $user->is_active) {
+            $activeSuperAdmins = User::query()
+                ->where('is_active', true)
+                ->whereHas('userRole', fn ($q) => $q->where('key', 'super_admin'))
+                ->count();
+            if ($activeSuperAdmins <= 1) {
+                return response()->json(['message' => 'لا يمكن تعطيل آخر مدير نظام نشط'], 422);
+            }
+        }
+
         $user->is_active = !$user->is_active;
         $user->save();
 
         ActivityLog::record('user', $user->id, 'status_changed',
             $user->is_active ? 'تم تفعيل المستخدم' : 'تم تعطيل المستخدم'
         );
+
+        SecurityAuditLog::record(
+            'rbac.user.' . ($user->is_active ? 'activated' : 'deactivated'),
+            'success', [], auth()->user(), null,
+            ['type' => 'user', 'id' => $user->id]
+        );
+
+        // SECURITY: revoke active sessions when an account is disabled so a
+        // stolen token cannot keep operating after the admin disabled the user.
+        if (!$user->is_active) {
+            $user->tokens()->delete();
+        }
 
         return response()->json([
             'message' => $user->is_active ? 'تم تفعيل المستخدم' : 'تم تعطيل المستخدم',

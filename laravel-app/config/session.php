@@ -47,7 +47,9 @@ return [
     |
     */
 
-    'encrypt' => env('SESSION_ENCRYPT', false),
+    // SECURITY: encrypt session payload at rest by default. Set
+    // SESSION_ENCRYPT=false in env only if you have a strong reason to.
+    'encrypt' => env('SESSION_ENCRYPT', true),
 
     /*
     |--------------------------------------------------------------------------
@@ -169,7 +171,9 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    // SECURITY: cookies are HTTPS-only by default in production.
+    // In local dev (APP_ENV=local), force false so HTTP login still works.
+    'secure' => env('SESSION_SECURE_COOKIE', env('APP_ENV') === 'local' ? false : true),
 
     /*
     |--------------------------------------------------------------------------

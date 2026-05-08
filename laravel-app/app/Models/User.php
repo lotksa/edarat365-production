@@ -3,16 +3,16 @@
 namespace App\Models;
 
 use Database\Factories\UserFactory;
-use Illuminate\Database\Eloquent\Attributes\Fillable;
-use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-#[Fillable(['name', 'email', 'phone', 'role', 'role_id', 'is_active', 'last_login_at', 'avatar_url', 'password'])]
-#[Hidden(['password', 'remember_token'])]
+// SECURITY: only the explicit `$fillable`/`$hidden` arrays below are the
+// source of truth for mass-assignment policy. The PHP 8 attribute variants
+// were removed because they were duplicated and risked drifting away from
+// the array properties (e.g. forgetting `password_changed_at`).
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
@@ -21,13 +21,17 @@ class User extends Authenticatable
     protected $fillable = [
         'name', 'email', 'phone', 'role', 'role_id',
         'is_active', 'last_login_at', 'avatar_url', 'password',
-        'failed_login_attempts', 'locked_until', 'last_failed_login_at',
-        'last_login_ip', 'password_changed_at',
+        'password_changed_at',
+        // Note: failed_login_attempts, locked_until, last_failed_login_at
+        // and last_login_ip are intentionally NOT fillable — they must be
+        // updated only by AuthController via direct assignment so they cannot
+        // be modified through mass-assignment from API requests.
     ];
 
     protected $hidden = [
         'password', 'remember_token',
         'failed_login_attempts', 'locked_until', 'last_failed_login_at',
+        'last_login_ip', 'password_changed_at',
     ];
 
     protected function casts(): array

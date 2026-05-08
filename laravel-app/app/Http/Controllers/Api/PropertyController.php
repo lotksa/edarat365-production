@@ -397,27 +397,32 @@ class PropertyController extends Controller
     {
         Property::findOrFail($propertyId);
 
+        // SECURITY: strict mime whitelist; reject SVG (XSS), HTML, executables, scripts.
+        $allowedMimes = 'pdf,doc,docx,xls,xlsx,ppt,pptx,txt,jpg,jpeg,png,gif,webp';
+
         if ($request->hasFile('documents')) {
             $request->validate([
-                'documents'   => ['required', 'array', 'min:1'],
-                'documents.*' => ['file', 'max:10240'],
+                'documents'   => ['required', 'array', 'min:1', 'max:20'],
+                'documents.*' => ['file', 'max:10240', 'mimes:' . $allowedMimes],
             ]);
 
             $docs = [];
             foreach ($request->file('documents') as $file) {
-                $path = $file->store("properties/{$propertyId}/documents", 'public');
-                $ext = strtolower($file->getClientOriginalExtension());
+                $ext = strtolower(preg_replace('/[^a-z0-9]/i', '', $file->getClientOriginalExtension()));
+                $safeName = bin2hex(random_bytes(16)) . '.' . $ext;
+                $path = $file->storeAs("properties/{$propertyId}/documents", $safeName, 'public');
                 $mime = $file->getClientMimeType();
-                $docType = in_array($ext, ['jpg','jpeg','png','gif','webp','svg']) ? 'image' : (in_array($ext, ['pdf']) ? 'pdf' : 'other');
+                $docType = in_array($ext, ['jpg','jpeg','png','gif','webp']) ? 'image' : ($ext === 'pdf' ? 'pdf' : 'other');
                 $docs[] = PropertyDocument::create([
                     'property_id'    => $propertyId,
-                    'doc_name'       => $file->getClientOriginalName(),
+                    'doc_name'       => mb_substr(basename($file->getClientOriginalName()), 0, 255),
                     'doc_type'       => $docType,
                     'file_path'      => $path,
                     'mime_type'      => $mime,
                     'file_extension' => $ext,
                     'file_size'      => $file->getSize(),
-                    'uploaded_by'    => $request->input('uploaded_by'),
+                    // SECURITY: uploader is always the authenticated user — never trust client.
+                    'uploaded_by'    => auth()->id(),
                 ]);
             }
 
@@ -425,26 +430,27 @@ class PropertyController extends Controller
         }
 
         $request->validate([
-            'file'     => ['required', 'file', 'max:10240'],
+            'file'     => ['required', 'file', 'max:10240', 'mimes:' . $allowedMimes],
             'doc_name' => ['nullable', 'string', 'max:255'],
-            'doc_type' => ['nullable', 'string', 'in:deed,contract,image,blueprint,other'],
+            'doc_type' => ['nullable', 'string', 'in:deed,contract,image,blueprint,pdf,other'],
         ]);
 
         $file = $request->file('file');
-        $path = $file->store("properties/{$propertyId}/documents", 'public');
-        $ext = strtolower($file->getClientOriginalExtension());
+        $ext = strtolower(preg_replace('/[^a-z0-9]/i', '', $file->getClientOriginalExtension()));
+        $safeName = bin2hex(random_bytes(16)) . '.' . $ext;
+        $path = $file->storeAs("properties/{$propertyId}/documents", $safeName, 'public');
         $mime = $file->getClientMimeType();
-        $autoDocType = in_array($ext, ['jpg','jpeg','png','gif','webp','svg']) ? 'image' : (in_array($ext, ['pdf']) ? 'pdf' : 'other');
+        $autoDocType = in_array($ext, ['jpg','jpeg','png','gif','webp']) ? 'image' : ($ext === 'pdf' ? 'pdf' : 'other');
 
         $doc = PropertyDocument::create([
             'property_id'    => $propertyId,
-            'doc_name'       => $request->input('doc_name', $file->getClientOriginalName()),
+            'doc_name'       => mb_substr($request->input('doc_name', basename($file->getClientOriginalName())), 0, 255),
             'doc_type'       => $request->input('doc_type', $autoDocType),
             'file_path'      => $path,
             'mime_type'      => $mime,
             'file_extension' => $ext,
             'file_size'      => $file->getSize(),
-            'uploaded_by'    => $request->input('uploaded_by'),
+            'uploaded_by'    => auth()->id(),
         ]);
 
         return response()->json(['message' => 'Document uploaded', 'data' => $doc], 201);

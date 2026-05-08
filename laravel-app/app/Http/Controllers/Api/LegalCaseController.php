@@ -205,15 +205,24 @@ class LegalCaseController extends Controller
 
     public function uploadDocument(Request $request): JsonResponse
     {
+        // SECURITY: strict mime whitelist (blocks SVG XSS, HTML, scripts, executables).
         $request->validate([
-            'file' => ['required', 'file', 'max:10240'],
+            'file' => [
+                'required',
+                'file',
+                'max:10240',
+                'mimes:pdf,doc,docx,xls,xlsx,ppt,pptx,txt,jpg,jpeg,png,gif,webp',
+            ],
         ]);
 
         $file = $request->file('file');
-        $path = $file->store('legal-cases/documents', 'public');
+        $ext = strtolower(preg_replace('/[^a-z0-9]/i', '', $file->getClientOriginalExtension()));
+        // Non-guessable file name; blocks IDOR-style enumeration.
+        $safeName = bin2hex(random_bytes(16)) . '.' . $ext;
+        $path = $file->storeAs('legal-cases/documents', $safeName, 'public');
 
         return response()->json([
-            'name' => $file->getClientOriginalName(),
+            'name' => mb_substr(basename($file->getClientOriginalName()), 0, 255),
             'path' => '/storage/' . $path,
             'size' => $file->getSize(),
         ]);

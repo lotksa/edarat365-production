@@ -130,6 +130,13 @@ class PermissionCatalog
                 'settings.mail' => ['إعدادات البريد', 'Mail settings'],
                 'settings.sms' => ['إعدادات الرسائل', 'SMS settings'],
             ]),
+            self::group('ai', 'الذكاء الاصطناعي', 'AI Assistant', [
+                'ai.use' => ['استخدام الذكاء الاصطناعي', 'Use AI assistant'],
+                'ai.test' => ['اختبار اتصال الذكاء', 'Test AI connection'],
+            ]),
+            self::group('search', 'البحث الشامل', 'Global Search', [
+                'search.use' => ['استخدام البحث الشامل', 'Use global search'],
+            ]),
             self::group('activity_log', 'السجل التاريخي', 'Activity Log', [
                 'activity_log.view' => ['عرض السجل', 'View activity log'],
             ]),
@@ -199,6 +206,8 @@ class PermissionCatalog
                     'approvals.view',
                     'reports.view',
                     'activity_log.view',
+                    'search.use',
+                    'ai.use',
                 ],
             ],
             [
@@ -219,6 +228,7 @@ class PermissionCatalog
                     'invoices.view','invoices.create','invoices.update','invoices.print',
                     'vouchers.view','vouchers.create','vouchers.update',
                     'reports.view','reports.export',
+                    'search.use',
                 ],
             ],
             [
@@ -236,6 +246,7 @@ class PermissionCatalog
                     'contracts.view','contracts.create','contracts.update','contracts.print',
                     'legal_cases.view','legal_cases.create','legal_cases.update',
                     'reports.view',
+                    'search.use',
                 ],
             ],
             [
@@ -252,6 +263,7 @@ class PermissionCatalog
                     'maintenance.view','maintenance.create','maintenance.update','maintenance.update_status',
                     'facilities.view',
                     'reports.view',
+                    'search.use',
                 ],
             ],
             [

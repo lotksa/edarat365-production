@@ -72,15 +72,21 @@ Route::prefix('v1')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index'])
             ->middleware('permission:dashboard.view');
 
-        // Global Search (available to any logged-in user; results already filter by what they can see)
-        Route::get('/search', [GlobalSearchController::class, 'search']);
-        Route::get('/search/ai', [GlobalSearchController::class, 'aiSearch']);
+        // Global Search (gated; throttled per user/IP to prevent abusive scraping)
+        Route::middleware(['permission:search.use', 'throttle:120,1'])->group(function () {
+            Route::get('/search', [GlobalSearchController::class, 'search']);
+            Route::get('/search/ai', [GlobalSearchController::class, 'aiSearch']);
+        });
 
-        // AI
-        Route::post('/ai/chat', [AiController::class, 'chat']);
-        Route::post('/ai/test', [AiController::class, 'test']);
-        Route::get('/ai/insights', [AiController::class, 'insights']);
-        Route::post('/ai/suggest', [AiController::class, 'suggest']);
+        // AI (gated to ai.use; aggressively throttled to bound LLM cost & abuse)
+        Route::middleware(['permission:ai.use', 'throttle:30,1'])->group(function () {
+            Route::post('/ai/chat', [AiController::class, 'chat']);
+            Route::get('/ai/insights', [AiController::class, 'insights']);
+            Route::post('/ai/suggest', [AiController::class, 'suggest']);
+        });
+        // Test connection: only privileged users (settings managers) may probe.
+        Route::post('/ai/test', [AiController::class, 'test'])
+            ->middleware(['permission:ai.test,settings.update', 'throttle:10,1']);
 
         // Settings (read = settings.view, write = settings.update)
         Route::get('/settings/{key}', [SettingsController::class, 'show'])
@@ -221,8 +227,9 @@ Route::prefix('v1')->group(function () {
         Route::put('/units/{unitId}/images/{imageId}', [UnitController::class, 'updateImage'])->middleware('permission:units.update');
         Route::delete('/units/{unitId}/images/{imageId}', [UnitController::class, 'deleteImage'])->middleware('permission:units.update');
 
-        // ── Unified Person Search (used everywhere — needs at least one of the view perms) ──
-        Route::get('/people/search', [PersonSearchController::class, 'search']);
+        // ── Unified Person Search (gated: requires at least one PII view permission) ──
+        Route::get('/people/search', [PersonSearchController::class, 'search'])
+            ->middleware('permission:owners.view,contracts.view,properties.view,associations.view,legal_cases.view');
 
         // ── Activity Logs ────────────────────────────────────────────────────
         Route::get('/activity-logs', [ActivityLogController::class, 'index'])
@@ -249,13 +256,17 @@ Route::prefix('v1')->group(function () {
         Route::delete('/contracts/{id}', [ContractController::class, 'destroy'])->middleware('permission:contracts.delete');
         Route::patch('/contracts/{id}/terminate', [ContractController::class, 'terminate'])->middleware('permission:contracts.update');
 
-        // ── Cities & Districts (settings.update) ─────────────────────────────
-        Route::get('/cities/export', [CityController::class, 'export']);
-        Route::get('/cities/import-template', [CityController::class, 'importTemplate']);
+        // ── Cities & Districts (read = any authenticated user; write = settings.update) ───
+        // These are reference data (used by dropdowns) so reads are allowed for any
+        // authenticated user. Bulk export/import templates require reports.export.
+        Route::middleware('permission:reports.export')->group(function () {
+            Route::get('/cities/export', [CityController::class, 'export']);
+            Route::get('/cities/import-template', [CityController::class, 'importTemplate']);
+            Route::get('/cities/{cityId}/districts/export', [CityController::class, 'exportDistricts']);
+            Route::get('/cities/{cityId}/districts/import-template', [CityController::class, 'districtsImportTemplate']);
+        });
         Route::get('/cities', [CityController::class, 'index']);
         Route::get('/cities/{id}', [CityController::class, 'show']);
-        Route::get('/cities/{cityId}/districts/export', [CityController::class, 'exportDistricts']);
-        Route::get('/cities/{cityId}/districts/import-template', [CityController::class, 'districtsImportTemplate']);
         Route::get('/cities/{cityId}/districts', [CityController::class, 'districts']);
         Route::middleware('permission:settings.update')->group(function () {
             Route::post('/cities/import', [CityController::class, 'import']);
@@ -304,9 +315,9 @@ Route::prefix('v1')->group(function () {
         Route::post('/legal-cases/{caseId}/permissions', [CasePermissionController::class, 'store'])->middleware('permission:legal_cases.update');
         Route::put('/legal-cases/{caseId}/permissions/{permId}', [CasePermissionController::class, 'update'])->middleware('permission:legal_cases.update');
         Route::delete('/legal-cases/{caseId}/permissions/{permId}', [CasePermissionController::class, 'destroy'])->middleware('permission:legal_cases.update');
-        Route::post('/legal-cases/{caseId}/messages', [CaseMessageController::class, 'store'])->middleware('permission:legal_cases.view');
-        Route::post('/legal-cases/{caseId}/messages/upload', [CaseMessageController::class, 'uploadAttachment'])->middleware('permission:legal_cases.view');
-        Route::patch('/legal-cases/{caseId}/messages/{msgId}/pin', [CaseMessageController::class, 'pin'])->middleware('permission:legal_cases.view');
+        Route::post('/legal-cases/{caseId}/messages', [CaseMessageController::class, 'store'])->middleware('permission:legal_cases.update');
+        Route::post('/legal-cases/{caseId}/messages/upload', [CaseMessageController::class, 'uploadAttachment'])->middleware('permission:legal_cases.update');
+        Route::patch('/legal-cases/{caseId}/messages/{msgId}/pin', [CaseMessageController::class, 'pin'])->middleware('permission:legal_cases.update');
         Route::post('/legal-cases/{caseId}/messages/mark-read', [CaseMessageController::class, 'markRead'])->middleware('permission:legal_cases.view');
         Route::post('/legal-cases/{caseId}/reminders', [CaseReminderController::class, 'store'])->middleware('permission:legal_cases.update');
         Route::put('/legal-cases/{caseId}/reminders/{remId}', [CaseReminderController::class, 'update'])->middleware('permission:legal_cases.update');
@@ -431,17 +442,29 @@ Route::prefix('v1')->group(function () {
         Route::get('/export/{module}/template', [ExportImportController::class, 'template'])->middleware('permission:reports.export');
         Route::post('/import/{module}', [ExportImportController::class, 'import'])->middleware('permission:settings.update');
 
-        // ── Generic resources fallback (already gated above; keep for compat) ──
-        $resources = [
-            'maintenance-requests',
-            'approval-requests',
+        // ── Generic resources fallback ───────────────────────────────────────
+        // Each resource is mapped to a permission family. The permissive
+        // ungated fallback was a major RBAC bypass vector and is removed.
+        $resourceMap = [
+            'maintenance-requests' => 'maintenance',
+            'approval-requests'    => 'approvals',
         ];
-        foreach ($resources as $resource) {
-            Route::get("/{$resource}", [ResourceController::class, 'index'])->defaults('resource', $resource);
-            Route::get("/{$resource}/{id}", [ResourceController::class, 'show'])->defaults('resource', $resource);
-            Route::post("/{$resource}", [ResourceController::class, 'store'])->defaults('resource', $resource);
-            Route::put("/{$resource}/{id}", [ResourceController::class, 'update'])->defaults('resource', $resource);
-            Route::delete("/{$resource}/{id}", [ResourceController::class, 'destroy'])->defaults('resource', $resource);
+        foreach ($resourceMap as $resource => $permPrefix) {
+            $viewPerm   = $permPrefix . '.view';
+            $createPerm = $permPrefix === 'approvals' ? 'approvals.approve' : ($permPrefix . '.create');
+            $updatePerm = $permPrefix === 'approvals' ? 'approvals.approve' : ($permPrefix . '.update');
+            $deletePerm = $permPrefix === 'approvals' ? 'approvals.reject'  : ($permPrefix . '.delete');
+
+            Route::get("/{$resource}", [ResourceController::class, 'index'])
+                ->defaults('resource', $resource)->middleware("permission:{$viewPerm}");
+            Route::get("/{$resource}/{id}", [ResourceController::class, 'show'])
+                ->defaults('resource', $resource)->middleware("permission:{$viewPerm}");
+            Route::post("/{$resource}", [ResourceController::class, 'store'])
+                ->defaults('resource', $resource)->middleware("permission:{$createPerm}");
+            Route::put("/{$resource}/{id}", [ResourceController::class, 'update'])
+                ->defaults('resource', $resource)->middleware("permission:{$updatePerm}");
+            Route::delete("/{$resource}/{id}", [ResourceController::class, 'destroy'])
+                ->defaults('resource', $resource)->middleware("permission:{$deletePerm}");
         }
     });
 });
