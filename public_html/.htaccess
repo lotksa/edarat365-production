@@ -2,8 +2,10 @@
 # Edarat365 — Production hardening (cPanel/Apache)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Disable directory browsing and signature
-Options -Indexes -MultiViews
+# Disable directory browsing and signature, but allow following symlinks so the
+# `public_html/storage` symlink (→ laravel-app/storage/app/public) is honored
+# when serving uploaded images/documents directly via Apache.
+Options -Indexes -MultiViews +SymLinksIfOwnerMatch +FollowSymLinks
 ServerSignature Off
 
 # ─── SPA Routing ─────────────────────────────────────────────────────────────
@@ -14,9 +16,13 @@ ServerSignature Off
     # Don't rewrite API requests
     RewriteRule ^api/ - [L]
 
-    # /storage/<...> → /api/storage/<...>  (Laravel public-disk uploads)
-    # Avoids breaking attachment URLs returned by the API as "/storage/..."
-    RewriteRule ^storage/(.*)$ /api/storage/$1 [L,QSA]
+    # /storage/<...> is served directly by Apache via the public_html/storage
+    # symlink that points at laravel-app/storage/app/public (created by
+    # setup.sh / .cpanel.yml). The previous rewrite to /api/storage/$1 was a
+    # dead end because Laravel does not expose /api/storage/{path} — and the
+    # SPA fallback at the bottom would then swallow the request and return
+    # index.html, breaking every uploaded image. We rely on the
+    # `REQUEST_FILENAME -f` checks below to send these to the symlinked file.
 
     # Block path traversal attempts
     RewriteCond %{THE_REQUEST} \s/+(.*)\.\.(.*)\s [NC]

@@ -58,3 +58,15 @@ deployment:
     - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan migrate --force || true
     # Re-encrypt legacy PII rows (idempotent: skips already-encrypted values)
     - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan encrypt:legacy-pii || true
+    # Null out PII columns that look like our Crypt envelope but no longer decrypt
+    # (key/MAC mismatch from a past APP_KEY change, double-encryption, or
+    # ciphertext that was stored before the column was widened to TEXT).
+    - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan pii:cleanup-corrupted --apply || true
+    # Ensure the public storage symlink exists so uploaded files are served
+    # by Apache directly (public_html/storage → laravel-app/storage/app/public).
+    # We do NOT use `php artisan storage:link` here because Laravel's default
+    # `public_path()` resolves to laravel-app/public, but on cPanel the web
+    # root is public_html — so the manual symlink is the source of truth.
+    - /bin/mkdir -p $LARAVEL_APP/storage/app/public
+    - /bin/rm -rf $PUBLIC_HTML/storage 2>/dev/null || true
+    - /bin/ln -sfn $LARAVEL_APP/storage/app/public $PUBLIC_HTML/storage
