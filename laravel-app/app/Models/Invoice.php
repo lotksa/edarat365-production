@@ -14,6 +14,9 @@ class Invoice extends Model
         'due_date', 'issue_date', 'payment_date',
         'status', 'payment_method',
         'description', 'line_items', 'notes',
+        // ZATCA lifecycle (see 2026_05_10_200000 migration)
+        'issued_at', 'cancelled_at', 'cancelled_by', 'cancellation_reason',
+        'original_invoice_id', 'replacement_invoice_id',
     ];
 
     protected $casts = [
@@ -26,7 +29,11 @@ class Invoice extends Model
         'issue_date'      => 'date',
         'payment_date'    => 'date',
         'line_items'      => 'array',
+        'issued_at'       => 'datetime',
+        'cancelled_at'    => 'datetime',
     ];
+
+    protected $appends = ['is_locked'];
 
     public function association(): BelongsTo
     {
@@ -51,5 +58,32 @@ class Invoice extends Model
     public function tenant(): BelongsTo
     {
         return $this->belongsTo(Tenant::class);
+    }
+
+    public function originalInvoice(): BelongsTo
+    {
+        return $this->belongsTo(Invoice::class, 'original_invoice_id');
+    }
+
+    public function replacementInvoice(): BelongsTo
+    {
+        return $this->belongsTo(Invoice::class, 'replacement_invoice_id');
+    }
+
+    public function canceller(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
+    }
+
+    /**
+     * ZATCA lock rule: an invoice that has been ISSUED (status != 'draft')
+     * cannot be edited. Cancelled invoices are also locked. Drafts remain
+     * fully editable (pre-issuance state).
+     */
+    public function getIsLockedAttribute(): bool
+    {
+        if ($this->cancelled_at) return true;
+        $status = (string) ($this->attributes['status'] ?? '');
+        return $status !== '' && $status !== 'draft';
     }
 }

@@ -359,25 +359,37 @@ Route::prefix('v1')->group(function () {
         Route::delete('/legal-representatives/{id}', [LegalRepresentativeController::class, 'destroy'])->middleware('permission:legal_cases.delete');
 
         // ── Invoices ─────────────────────────────────────────────────────────
+        // {id} is constrained to digits so a stray request to e.g.
+        // /invoices/create never lands on show() and 500s the way it did
+        // pre-fix; instead the router cleanly returns 404.
         Route::middleware('permission:invoices.view')->group(function () {
             Route::get('/invoices/stats', [InvoiceController::class, 'stats']);
             Route::get('/invoices', [InvoiceController::class, 'index']);
-            Route::get('/invoices/{id}', [InvoiceController::class, 'show']);
-            Route::get('/invoices/{id}/pdf-data', [InvoicePdfController::class, 'show']);
+            Route::get('/invoices/{id}', [InvoiceController::class, 'show'])->whereNumber('id');
+            Route::get('/invoices/{id}/pdf-data', [InvoicePdfController::class, 'show'])->whereNumber('id');
         });
         Route::post('/invoices', [InvoiceController::class, 'store'])->middleware('permission:invoices.create');
-        Route::put('/invoices/{id}', [InvoiceController::class, 'update'])->middleware('permission:invoices.update');
-        Route::delete('/invoices/{id}', [InvoiceController::class, 'destroy'])->middleware('permission:invoices.delete');
+        Route::put('/invoices/{id}', [InvoiceController::class, 'update'])->whereNumber('id')->middleware('permission:invoices.update');
+        Route::delete('/invoices/{id}', [InvoiceController::class, 'destroy'])->whereNumber('id')->middleware('permission:invoices.delete');
+        // ZATCA-compliant lifecycle: edit-after-issue is forbidden, so we
+        // expose cancel + reissue instead. Both require invoices.update so
+        // the same admins who could edit drafts can cancel/replace issued
+        // invoices, but neither bypasses the legal audit trail.
+        Route::post('/invoices/{id}/cancel', [InvoiceController::class, 'cancel'])->whereNumber('id')->middleware('permission:invoices.update');
+        Route::post('/invoices/{id}/reissue', [InvoiceController::class, 'reissue'])->whereNumber('id')->middleware('permission:invoices.update');
 
         // ── Vouchers ─────────────────────────────────────────────────────────
+        // Same digit-only constraint to stop /vouchers/create from being
+        // resolved to show("create") when the SPA accidentally pushes that
+        // path.
         Route::middleware('permission:vouchers.view')->group(function () {
             Route::get('/vouchers/stats', [VoucherController::class, 'stats']);
             Route::get('/vouchers', [VoucherController::class, 'index']);
-            Route::get('/vouchers/{id}', [VoucherController::class, 'show']);
+            Route::get('/vouchers/{id}', [VoucherController::class, 'show'])->whereNumber('id');
         });
         Route::post('/vouchers', [VoucherController::class, 'store'])->middleware('permission:vouchers.create');
-        Route::put('/vouchers/{id}', [VoucherController::class, 'update'])->middleware('permission:vouchers.update');
-        Route::delete('/vouchers/{id}', [VoucherController::class, 'destroy'])->middleware('permission:vouchers.delete');
+        Route::put('/vouchers/{id}', [VoucherController::class, 'update'])->whereNumber('id')->middleware('permission:vouchers.update');
+        Route::delete('/vouchers/{id}', [VoucherController::class, 'destroy'])->whereNumber('id')->middleware('permission:vouchers.delete');
 
         // ── Parking Spots ───────────────────────────────────────────────────
         Route::middleware('permission:vehicles.view')->group(function () {
