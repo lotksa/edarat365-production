@@ -1,5 +1,5 @@
 # Edarat365 — Private platform. NOT for public indexing.
-# Block ALL crawlers (search engines, AI bots, scrapers).
+# Block ALL crawlers and automated agents.
 
 User-agent: *
 Disallow: /
@@ -97,7 +97,7 @@ Disallow: /
 User-agent: SeznamBot
 Disallow: /
 
-# AI training / answer bots
+# Specialized crawlers
 User-agent: GPTBot
 Disallow: /
 
