@@ -629,6 +629,23 @@ class SettingsController extends Controller
         $current = Setting::getByKey($key, $defaults);
         $incoming = $request->input('value');
 
+        // BUSINESS RULE: at least one login channel must remain enabled, otherwise
+        // every administrator would be locked out of the platform with no way
+        // back in. Reject the payload before persisting.
+        if ($key === 'auth_settings') {
+            $email = array_key_exists('allow_email_login', $incoming)
+                ? (bool) $incoming['allow_email_login']
+                : (bool) ($current['allow_email_login'] ?? true);
+            $phone = array_key_exists('allow_phone_login', $incoming)
+                ? (bool) $incoming['allow_phone_login']
+                : (bool) ($current['allow_phone_login'] ?? true);
+            if (!$email && !$phone) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'value' => 'لا يمكن تعطيل تسجيل الدخول عبر البريد والجوال معاً، يجب إبقاء طريقة واحدة على الأقل مفعّلة.',
+                ]);
+            }
+        }
+
         // Preserve existing secrets when client sends the masked placeholder back unchanged
         $secrets = self::SECRET_KEYS[$key] ?? [];
         foreach ($secrets as $field) {

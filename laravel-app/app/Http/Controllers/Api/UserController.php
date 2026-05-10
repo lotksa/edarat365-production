@@ -185,40 +185,6 @@ class UserController extends Controller
         ]);
     }
 
-    /**
-     * Reset (set) a user's password from the User Detail modal. Enforces
-     * the same strong-password policy used in store/update; revokes all
-     * outstanding tokens so the prior session cannot continue.
-     */
-    public function resetPassword(Request $request, int $id): JsonResponse
-    {
-        $user = User::findOrFail($id);
-
-        $data = $request->validate([
-            'password' => ['required', \Illuminate\Validation\Rules\Password::min(12)
-                ->letters()->mixedCase()->numbers()->symbols()],
-        ], [
-            'password.required' => 'كلمة المرور مطلوبة',
-        ]);
-
-        $user->password = $data['password']; // hashed cast handles hashing
-        $user->password_changed_at = now();
-        $user->failed_login_attempts = 0;
-        $user->locked_until = null;
-        $user->save();
-
-        // Force re-login on every device so the old token cannot continue.
-        $user->tokens()->delete();
-
-        ActivityLog::record('user', $user->id, 'password_reset', 'تم إعادة تعيين كلمة المرور');
-        SecurityAuditLog::record('auth.password.reset_by_admin', 'success', [],
-            auth()->user(), null, ['type' => 'user', 'id' => $user->id], $request);
-
-        return response()->json([
-            'message' => 'تم إعادة تعيين كلمة المرور',
-        ]);
-    }
-
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([

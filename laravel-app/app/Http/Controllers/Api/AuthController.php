@@ -13,7 +13,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -54,6 +53,111 @@ class AuthController extends Controller
         return response()->json([
             'idle_timeout_seconds' => $minutes * 60,
             'idle_warning_seconds' => max(30, min(120, (int) ($minutes * 60 * 0.1))),
+        ]);
+    }
+
+    /**
+     * Public endpoint exposing which identifier channels are enabled on the
+     * login page. Read by the SPA before rendering so it can hide the
+     * Email / Phone tabs (or even the tab strip entirely if only one method
+     * is allowed). The administrator controls these flags from
+     * Settings → Login Page Settings (auth_settings.allow_*_login).
+     *
+     * SAFETY: if both flags end up false in the DB (should never happen —
+     * the SettingsController validates this — but defensive belt) we
+     * fall back to allowing email so the platform never becomes unusable.
+     */
+    public function loginConfig(): JsonResponse
+    {
+        try {
+            $cfg = \App\Models\Setting::getByKey('auth_settings', []);
+        } catch (\Throwable $e) {
+            $cfg = [];
+        }
+        $email = (bool) ($cfg['allow_email_login'] ?? true);
+        $phone = (bool) ($cfg['allow_phone_login'] ?? true);
+        if (!$email && !$phone) { $email = true; }
+        $default = $cfg['default_login_method'] ?? 'email';
+        if (!in_array($default, ['email', 'phone'], true)) { $default = 'email'; }
+        if ($default === 'email' && !$email) { $default = 'phone'; }
+        if ($default === 'phone' && !$phone) { $default = 'email'; }
+        return response()->json([
+            'allow_email_login' => $email,
+            'allow_phone_login' => $phone,
+            'default_login_method' => $default,
+        ]);
+    }
+
+    /**
+     * Public endpoint used by the SPA to check whether an identifier (email
+     * or phone) corresponds to a registered admin user BEFORE asking the
+     * server to send a verification code. The platform owner explicitly
+     * wants the user to be told "Account not registered, please contact the
+     * administrator" rather than the silently-pretend-success behaviour
+     * `requestOtp` uses against bot enumeration.
+     *
+     * Same Turnstile gate + IP throttle apply as on `request-otp` so this
+     * endpoint cannot be abused for mass user enumeration: an attacker
+     * must solve a fresh challenge for every probe.
+     */
+    public function checkIdentity(Request $request): JsonResponse
+    {
+        $payload = $request->validate([
+            'identifier' => ['required', 'string', 'max:255'],
+        ]);
+
+        // Bot defense — same gate as `request-otp`. Each token is single-use
+        // so an attacker can't mass-probe identifiers from a single solve.
+        $this->turnstile->assertVerified($request, TurnstileService::PAGE_ADMIN_LOGIN);
+
+        $identifier = $this->normalize($payload['identifier']);
+        $channel = $this->otp->detectChannel($identifier);
+
+        // Honor the admin-configured login channel toggles. If the admin has
+        // disabled email login and the supplied identifier is an email, we
+        // tell the SPA so it can surface a clear "method disabled" error
+        // instead of falsely claiming the account is unregistered.
+        try {
+            $cfg = \App\Models\Setting::getByKey('auth_settings', []);
+        } catch (\Throwable $e) {
+            $cfg = [];
+        }
+        $allowEmail = (bool) ($cfg['allow_email_login'] ?? true);
+        $allowPhone = (bool) ($cfg['allow_phone_login'] ?? true);
+        if (!$allowEmail && !$allowPhone) { $allowEmail = true; }
+
+        if ($channel === OtpService::CHANNEL_EMAIL && !$allowEmail) {
+            SecurityAuditLog::record('auth.identity.check', 'failed', [
+                'reason' => 'method_disabled', 'channel' => $channel,
+            ], null, $identifier, null, $request);
+            return response()->json([
+                'registered' => false,
+                'reason' => 'method_disabled',
+                'channel' => $channel,
+            ], 422);
+        }
+        if ($channel === OtpService::CHANNEL_PHONE && !$allowPhone) {
+            SecurityAuditLog::record('auth.identity.check', 'failed', [
+                'reason' => 'method_disabled', 'channel' => $channel,
+            ], null, $identifier, null, $request);
+            return response()->json([
+                'registered' => false,
+                'reason' => 'method_disabled',
+                'channel' => $channel,
+            ], 422);
+        }
+
+        $user = $this->findUserByIdentifier($identifier);
+        $registered = (bool) $user;
+
+        SecurityAuditLog::record('auth.identity.check', $registered ? 'success' : 'failed', [
+            'channel' => $channel,
+            'registered' => $registered,
+        ], $user, $identifier, null, $request);
+
+        return response()->json([
+            'registered' => $registered,
+            'channel' => $channel,
         ]);
     }
 
@@ -145,7 +249,7 @@ class AuthController extends Controller
     {
         $payload = $request->validate([
             'identifier' => ['required', 'string', 'max:255'],
-            'purpose'    => ['nullable', 'in:login,password_reset'],
+            'purpose'    => ['nullable', 'in:login'],
         ]);
 
         // Bot defense — runs BEFORE we touch the DB or send any SMS/email so an
@@ -154,22 +258,42 @@ class AuthController extends Controller
 
         $identifier = $this->normalize($payload['identifier']);
         $purpose = $payload['purpose'] ?? OtpService::PURPOSE_LOGIN;
+        $channel = $this->otp->detectChannel($identifier);
+
+        // Enforce the admin-configured login-method toggles BEFORE looking the
+        // user up — if the channel is disabled there is no point in revealing
+        // anything else. Tied to auth_settings.allow_email_login /
+        // allow_phone_login (managed at Settings → Login Page Settings).
+        try {
+            $cfg = \App\Models\Setting::getByKey('auth_settings', []);
+        } catch (\Throwable $e) {
+            $cfg = [];
+        }
+        $allowEmail = (bool) ($cfg['allow_email_login'] ?? true);
+        $allowPhone = (bool) ($cfg['allow_phone_login'] ?? true);
+        if (!$allowEmail && !$allowPhone) { $allowEmail = true; }
+        if (($channel === OtpService::CHANNEL_EMAIL && !$allowEmail)
+            || ($channel === OtpService::CHANNEL_PHONE && !$allowPhone)) {
+            SecurityAuditLog::record('auth.otp.requested', 'failed', [
+                'reason' => 'method_disabled',
+                'channel' => $channel,
+            ], null, $identifier, null, $request);
+            throw ValidationException::withMessages([
+                'identifier' => 'تم تعطيل تسجيل الدخول عبر هذه الطريقة، يرجى استخدام الطريقة الأخرى',
+            ]);
+        }
 
         $user = $this->findUserByIdentifier($identifier);
         if (!$user) {
-            // Do NOT leak account existence: respond as if it succeeded.
+            // The platform owner has explicitly opted IN to user-enumeration on
+            // the login page ("الحساب غير مسجل يرجى مراجعة الإدارة"). Turnstile
+            // + IP throttle on the route make automated probing impractical.
             SecurityAuditLog::record('auth.otp.requested', 'failed', [
                 'reason' => 'unknown_identifier',
             ], null, $identifier, null, $request);
 
-            $channel = $this->otp->detectChannel($identifier);
-            return response()->json([
-                'message'           => 'Verification code sent',
-                'channel'           => $channel,
-                'purpose'           => $purpose,
-                'masked_identifier' => $this->maskIdentifier($identifier, $channel),
-                'expires_in_seconds' => 600,
-                'delivered'         => false,
+            throw ValidationException::withMessages([
+                'identifier' => 'الحساب غير مسجل، يرجى مراجعة الإدارة',
             ]);
         }
 
@@ -182,7 +306,6 @@ class AuthController extends Controller
             SecurityAuditLog::record('auth.otp.requested', 'failed', [
                 'reason' => 'cooldown',
             ], $user, $identifier, null, $request);
-            $channel = $this->otp->detectChannel($identifier);
             return response()->json([
                 'message'           => 'Verification code sent',
                 'channel'           => $channel,
@@ -194,7 +317,6 @@ class AuthController extends Controller
         }
         cache()->put($cooldownKey, 1, now()->addSeconds(30));
 
-        $channel = $this->otp->detectChannel($identifier);
         $otp = $this->otp->createOtp($identifier, $channel, $purpose, 10);
         $delivery = $this->otp->send($otp, $user->name);
 
@@ -218,11 +340,11 @@ class AuthController extends Controller
         $payload = $request->validate([
             'identifier' => ['required', 'string', 'max:255'],
             'code'       => ['required', 'string', 'regex:/^[0-9]{4,6}$/'],
-            'purpose'    => ['nullable', 'in:login,password_reset'],
+            'purpose'    => ['nullable', 'in:login'],
         ]);
 
         $identifier = $this->normalize($payload['identifier']);
-        $purpose = $payload['purpose'] ?? OtpService::PURPOSE_LOGIN;
+        $purpose = OtpService::PURPOSE_LOGIN;
         $code = $payload['code'];
 
         $user = $this->findUserByIdentifier($identifier);
@@ -264,17 +386,6 @@ class AuthController extends Controller
 
         $otp->update(['used_at' => now()]);
 
-        if ($purpose === OtpService::PURPOSE_PASSWORD_RESET) {
-            SecurityAuditLog::record('auth.otp.verified', 'success', [
-                'purpose' => 'password_reset',
-            ], $user, $identifier, null, $request);
-
-            return response()->json([
-                'message'     => 'Verified',
-                'reset_token' => $this->issueResetToken($identifier),
-            ]);
-        }
-
         $this->recordSuccessfulLogin($user, $request, 'auth.login.otp.success');
         $token = $user->createToken('web')->plainTextToken;
 
@@ -282,56 +393,6 @@ class AuthController extends Controller
             'message' => 'Authenticated with OTP',
             'token'   => $token,
             'user'    => $user,
-        ]);
-    }
-
-    public function resetPassword(Request $request): JsonResponse
-    {
-        $payload = $request->validate([
-            'identifier'  => ['required', 'string', 'max:255'],
-            'reset_token' => ['required', 'string'],
-            'password'    => ['required', 'confirmed', Password::min(12)
-                ->letters()
-                ->mixedCase()
-                ->numbers()
-                ->symbols()
-                ->uncompromised()],
-        ]);
-
-        $this->turnstile->assertVerified($request, TurnstileService::PAGE_ADMIN_LOGIN);
-
-        $identifier = $this->normalize($payload['identifier']);
-
-        if (!$this->verifyResetToken($identifier, $payload['reset_token'])) {
-            SecurityAuditLog::record('auth.password.reset', 'failed', [
-                'reason' => 'invalid_reset_token',
-            ], null, $identifier, null, $request);
-            throw ValidationException::withMessages([
-                'reset_token' => 'رمز إعادة التعيين غير صالح',
-            ]);
-        }
-
-        $user = $this->findUserByIdentifier($identifier);
-        if (!$user) {
-            throw ValidationException::withMessages(['identifier' => 'User not found']);
-        }
-
-        // The 'hashed' cast on the password attribute will re-hash.
-        $user->password = $payload['password'];
-        $user->password_changed_at = now();
-        $user->failed_login_attempts = 0;
-        $user->locked_until = null;
-        $user->save();
-
-        // Revoke all existing tokens — the user may be compromised.
-        $user->tokens()->delete();
-
-        $this->consumeResetToken($identifier);
-
-        SecurityAuditLog::record('auth.password.reset', 'success', [], $user, $identifier, null, $request);
-
-        return response()->json([
-            'message' => 'تم تحديث كلمة المرور',
         ]);
     }
 
@@ -431,21 +492,4 @@ class AuthController extends Controller
         return str_repeat('*', $len - 4) . substr($digits, -4);
     }
 
-    private function issueResetToken(string $identifier): string
-    {
-        $token = Str::random(64);
-        cache()->put('pwreset:' . sha1($identifier), $token, now()->addMinutes(15));
-        return $token;
-    }
-
-    private function verifyResetToken(string $identifier, string $token): bool
-    {
-        $stored = cache()->get('pwreset:' . sha1($identifier));
-        return is_string($stored) && hash_equals($stored, $token);
-    }
-
-    private function consumeResetToken(string $identifier): void
-    {
-        cache()->forget('pwreset:' . sha1($identifier));
-    }
 }

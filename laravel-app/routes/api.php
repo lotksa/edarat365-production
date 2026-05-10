@@ -52,6 +52,9 @@ Route::prefix('v1')->group(function () {
     Route::get('/auth/turnstile-config', [AuthController::class, 'turnstileConfig']);
     // Public session bootstrap — exposes the idle timeout window (seconds).
     Route::get('/auth/session-config', [AuthController::class, 'sessionConfig']);
+    // Public login-method bootstrap — returns which channels (email / phone)
+    // are enabled so the SPA can hide the disabled tabs.
+    Route::get('/auth/login-config', [AuthController::class, 'loginConfig']);
 
     // Strict per-IP + per-identifier throttles to defeat brute-force / credential stuffing.
     Route::post('/auth/login', [AuthController::class, 'login'])
@@ -60,10 +63,10 @@ Route::prefix('v1')->group(function () {
         ->middleware('auth.throttle:3,1,otp_request');
     Route::post('/auth/verify-otp', [AuthController::class, 'verifyOtp'])
         ->middleware('auth.throttle:5,1,otp_verify');
-    Route::post('/auth/forgot-password', [AuthController::class, 'requestOtp'])
-        ->middleware('auth.throttle:3,1,forgot');
-    Route::post('/auth/reset-password', [AuthController::class, 'resetPassword'])
-        ->middleware('auth.throttle:3,1,reset');
+    // Pre-flight "is this account registered?" check the SPA runs before
+    // calling /auth/request-otp. Same Turnstile + IP throttle apply.
+    Route::post('/auth/check-identity', [AuthController::class, 'checkIdentity'])
+        ->middleware('auth.throttle:5,1,identity_check');
 
     // ── Authenticated endpoints ───────────────────────────────────────────────
     // SECURITY: every authenticated request runs through `idle.timeout` after
@@ -125,12 +128,12 @@ Route::prefix('v1')->group(function () {
         Route::patch('/users/{id}/toggle-status', [UserController::class, 'toggleStatus'])
             ->middleware('permission:users.toggle_status');
 
-        // ── User Detail modal — avatar + reset password ─────────────────────
+        // ── User Detail modal — avatar management ────────────────────────────
+        // NOTE: admin password reset is intentionally NOT exposed — the
+        // platform is OTP-only and never relies on knowing a user's password.
         Route::post('/users/{id}/avatar', [UserController::class, 'uploadAvatar'])
             ->middleware('permission:users.update');
         Route::delete('/users/{id}/avatar', [UserController::class, 'removeAvatar'])
-            ->middleware('permission:users.update');
-        Route::post('/users/{id}/reset-password', [UserController::class, 'resetPassword'])
             ->middleware('permission:users.update');
 
         // ── Roles & Permissions management (strict) ──────────────────────────
