@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Invoice;
+use App\Services\Notifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -99,6 +100,20 @@ class InvoiceController extends Controller
             'total_amount'   => (float) $invoice->total_amount,
         ]);
 
+        // Notify admins (and the owner if linked) — drafts are not announced.
+        if ($invoice->status !== 'draft') {
+            Notifier::dispatch('invoice.created', [
+                'subject'  => $invoice,
+                'owner_id' => $invoice->owner_id,
+                'data'     => [
+                    'number'   => $invoice->invoice_number,
+                    'amount'   => number_format((float) $invoice->total_amount, 2),
+                    'status'   => $invoice->status,
+                    'due_date' => optional($invoice->due_date)->format('Y-m-d'),
+                ],
+            ]);
+        }
+
         return response()->json([
             'message' => 'تم إنشاء الفاتورة بنجاح',
             'data'    => $invoice->load(['association', 'property', 'owner', 'unit', 'tenant']),
@@ -137,6 +152,20 @@ class InvoiceController extends Controller
 
         ActivityLog::record('invoice', $invoice->id, 'updated', 'تم تحديث مسودة فاتورة — ' . $invoice->invoice_number);
 
+        // Status transitions worth announcing: paid, overdue.
+        if ($newStatus !== $oldStatus && in_array($newStatus, ['paid', 'overdue'], true)) {
+            Notifier::dispatch("invoice.{$newStatus}", [
+                'subject'  => $invoice,
+                'owner_id' => $invoice->owner_id,
+                'data'     => [
+                    'number'   => $invoice->invoice_number,
+                    'amount'   => number_format((float) $invoice->total_amount, 2),
+                    'status'   => $newStatus,
+                    'due_date' => optional($invoice->due_date)->format('Y-m-d'),
+                ],
+            ]);
+        }
+
         return response()->json([
             'message' => 'تم تحديث الفاتورة بنجاح',
             'data'    => $invoice->fresh()->load(['association', 'property', 'owner', 'unit', 'tenant']),
@@ -172,6 +201,15 @@ class InvoiceController extends Controller
             'cancelled_by'        => auth()->id() ?? null,
             'cancellation_reason' => $data['reason'],
             'status'              => 'cancelled',
+        ]);
+
+        Notifier::dispatch('invoice.cancelled', [
+            'subject'  => $invoice,
+            'owner_id' => $invoice->owner_id,
+            'data'     => [
+                'number' => $invoice->invoice_number,
+                'reason' => $data['reason'],
+            ],
         ]);
 
         ActivityLog::record('invoice', $invoice->id, 'cancelled',

@@ -8,6 +8,7 @@ use App\Models\Owner;
 use App\Models\Vote;
 use App\Models\VotePhase;
 use App\Models\VoteResponse;
+use App\Services\Notifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -130,6 +131,14 @@ class VoteController extends Controller
         });
 
         ActivityLog::record('vote', $vote->id, 'created', 'تم إنشاء تصويت — ' . $vote->title);
+
+        Notifier::dispatch('vote.created', [
+            'subject' => $vote,
+            'data'    => [
+                'title'  => $vote->title,
+                'number' => $vote->vote_number,
+            ],
+        ]);
 
         return response()->json([
             'message' => 'تم إنشاء التصويت بنجاح',

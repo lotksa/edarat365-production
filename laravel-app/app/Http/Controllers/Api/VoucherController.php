@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Voucher;
+use App\Services\Notifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -88,6 +89,16 @@ class VoucherController extends Controller
         $voucher = Voucher::create($data);
         $label = $data['type'] === 'receipt' ? 'سند قبض' : 'سند صرف';
         ActivityLog::record('voucher', $voucher->id, 'created', "تم إنشاء {$label} — {$voucher->voucher_number}");
+
+        Notifier::dispatch('voucher.created', [
+            'subject'  => $voucher,
+            'owner_id' => $voucher->owner_id,
+            'data'     => [
+                'number' => $voucher->voucher_number,
+                'amount' => number_format((float) $voucher->amount, 2),
+                'type'   => $label,
+            ],
+        ]);
 
         return response()->json([
             'message' => 'تم إنشاء السند بنجاح',

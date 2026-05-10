@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\CaseUpdate;
 use App\Models\LegalCase;
+use App\Services\Notifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -101,6 +102,15 @@ class LegalCaseController extends Controller
         $case = LegalCase::create($data);
         ActivityLog::record('legal_case', $case->id, 'created', 'تم إنشاء قضية — ' . $case->title);
 
+        Notifier::dispatch('legal_case.created', [
+            'subject' => $case,
+            'data'    => [
+                'number' => $case->case_number,
+                'title'  => $case->title,
+                'status' => $case->status,
+            ],
+        ]);
+
         return response()->json(['message' => 'تم إنشاء القضية بنجاح', 'data' => $case->load(['association', 'property', 'owner', 'unit'])], 201);
     }
 
@@ -131,8 +141,20 @@ class LegalCaseController extends Controller
             'status'         => ['nullable', 'string', 'max:50'],
         ]);
 
+        $oldStatus = $case->status;
         $case->update($data);
         ActivityLog::record('legal_case', $case->id, 'updated', 'تم تحديث قضية — ' . $case->title);
+
+        if (isset($data['status']) && $data['status'] !== $oldStatus) {
+            Notifier::dispatch('legal_case.status_changed', [
+                'subject' => $case,
+                'data'    => [
+                    'number' => $case->case_number,
+                    'status' => $case->status,
+                    'title'  => $case->title,
+                ],
+            ]);
+        }
 
         return response()->json(['message' => 'تم تحديث القضية بنجاح', 'data' => $case->fresh()->load(['association', 'property', 'owner', 'unit'])]);
     }
@@ -173,6 +195,14 @@ class LegalCaseController extends Controller
 
         $update = CaseUpdate::create($data);
         ActivityLog::record('legal_case', $caseId, 'update_added', 'تم إضافة تحديث للقضية — ' . $update->title);
+
+        Notifier::dispatch('legal_case.update_added', [
+            'subject' => $case,
+            'data'    => [
+                'number' => $case->case_number,
+                'title'  => $update->title,
+            ],
+        ]);
 
         return response()->json([
             'message' => 'تم إضافة التحديث بنجاح',

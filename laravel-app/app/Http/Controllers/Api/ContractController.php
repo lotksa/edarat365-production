@@ -7,6 +7,7 @@ use App\Models\ActivityLog;
 use App\Models\Contract;
 use App\Models\Tenant;
 use App\Services\EjarService;
+use App\Services\Notifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -107,6 +108,15 @@ class ContractController extends Controller
 
         $contract = Contract::create($data);
         ActivityLog::record('contract', $contract->id, 'created', 'تم إنشاء عقد — ' . $contract->contract_name);
+
+        Notifier::dispatch('contract.created', [
+            'subject'  => $contract,
+            'owner_id' => $contract->owner_id,
+            'data'     => [
+                'number' => $contract->contract_number,
+                'name'   => $contract->contract_name,
+            ],
+        ]);
 
         return response()->json([
             'message' => 'تم إنشاء العقد بنجاح',

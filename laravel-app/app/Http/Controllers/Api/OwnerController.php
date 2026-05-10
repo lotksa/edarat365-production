@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Owner;
 use App\Models\Setting;
+use App\Services\Notifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -158,6 +159,11 @@ class OwnerController extends Controller
         $owner = Owner::create($data);
 
         ActivityLog::record('owner', $owner->id, 'created', 'تم إنشاء حساب مالك جديد');
+
+        Notifier::dispatch('owner.created', [
+            'subject' => $owner,
+            'data'    => ['name' => $owner->full_name, 'account_number' => $owner->account_number],
+        ]);
 
         return response()->json([
             'message' => 'تم إضافة المالك بنجاح',

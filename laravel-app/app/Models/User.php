@@ -92,6 +92,16 @@ class User extends Authenticatable
     }
 
     /**
+     * If this user account is also an owner, returns the linked Owner row.
+     * Used by NotificationController so a logged-in owner can see
+     * notifications that were routed to their owner_id.
+     */
+    public function ownerProfile(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(Owner::class, 'user_id');
+    }
+
+    /**
      * Resolves the best avatar URL for this user. Order of preference:
      *   1. Locally-uploaded file under storage/app/public/users/avatars
      *      (the new `avatar_path` column populated via the User Detail

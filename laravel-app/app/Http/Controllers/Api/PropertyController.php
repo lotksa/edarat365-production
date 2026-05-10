@@ -110,6 +110,11 @@ class PropertyController extends Controller
         $property = Property::create($data);
         ActivityLog::record('property', $property->id, 'created', 'تم إنشاء عقار جديد');
 
+        \App\Services\Notifier::dispatch('property.created', [
+            'subject' => $property,
+            'data'    => ['name' => $property->name, 'number' => $property->property_number],
+        ]);
+
         return response()->json([
             'message' => 'Property created successfully',
             'data' => $property,

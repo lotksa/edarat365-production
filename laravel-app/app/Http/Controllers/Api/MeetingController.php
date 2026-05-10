@@ -7,6 +7,7 @@ use App\Models\ActivityLog;
 use App\Models\Meeting;
 use App\Models\Owner;
 use App\Models\Resolution;
+use App\Services\Notifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -116,6 +117,16 @@ class MeetingController extends Controller
 
         $meeting = Meeting::create($data);
         ActivityLog::record('meeting', $meeting->id, 'created', 'تم إنشاء اجتماع — ' . $meeting->title);
+
+        Notifier::dispatch('meeting.scheduled', [
+            'subject' => $meeting,
+            'data' => [
+                'title'        => $meeting->title,
+                'scheduled_at' => optional($meeting->scheduled_at)->format('Y-m-d H:i'),
+                'location'     => $meeting->location,
+                'meeting_number' => $meeting->meeting_number,
+            ],
+        ]);
 
         return response()->json(['message' => 'تم إنشاء الاجتماع بنجاح', 'data' => $meeting->load(['association', 'property'])], 201);
     }

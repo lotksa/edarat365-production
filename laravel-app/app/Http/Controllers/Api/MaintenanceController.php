@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\MaintenanceRequest;
+use App\Services\Notifier;
 use Illuminate\Http\{Request, JsonResponse};
 
 class MaintenanceController extends Controller
@@ -88,6 +89,17 @@ class MaintenanceController extends Controller
         $item = MaintenanceRequest::create($data);
         $item->load(['association', 'property', 'unit', 'owner']);
 
+        Notifier::dispatch('maintenance.created', [
+            'subject'  => $item,
+            'owner_id' => $item->owner_id,
+            'data' => [
+                'id'       => $item->id,
+                'title'    => $item->title,
+                'priority' => $item->priority,
+                'status'   => $item->status,
+            ],
+        ]);
+
         return response()->json(['data' => $item, 'message' => 'created'], 201);
     }
 
@@ -120,6 +132,20 @@ class MaintenanceController extends Controller
 
         if ($oldStatus !== 'completed' && ($data['status'] ?? null) === 'completed' && !$item->completed_date) {
             $item->update(['completed_date' => now()->toDateString()]);
+        }
+
+        $newStatus = $data['status'] ?? $oldStatus;
+        if ($newStatus !== $oldStatus) {
+            $eventKey = $newStatus === 'completed' ? 'maintenance.completed' : 'maintenance.status_changed';
+            Notifier::dispatch($eventKey, [
+                'subject'  => $item,
+                'owner_id' => $item->owner_id,
+                'data' => [
+                    'id'     => $item->id,
+                    'title'  => $item->title,
+                    'status' => $newStatus,
+                ],
+            ]);
         }
 
         $item->load(['association', 'property', 'unit', 'owner']);
@@ -159,10 +185,24 @@ class MaintenanceController extends Controller
             'status' => 'required|string|in:open,in_progress,on_hold,completed,closed,cancelled',
         ]);
 
+        $oldStatus = $item->status;
         $item->update(['status' => $request->status]);
 
         if ($request->status === 'completed' && !$item->completed_date) {
             $item->update(['completed_date' => now()->toDateString()]);
+        }
+
+        if ($oldStatus !== $request->status) {
+            $eventKey = $request->status === 'completed' ? 'maintenance.completed' : 'maintenance.status_changed';
+            Notifier::dispatch($eventKey, [
+                'subject'  => $item,
+                'owner_id' => $item->owner_id,
+                'data' => [
+                    'id'     => $item->id,
+                    'title'  => $item->title,
+                    'status' => $request->status,
+                ],
+            ]);
         }
 
         return response()->json(['data' => $item, 'message' => 'status_updated']);

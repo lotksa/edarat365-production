@@ -7,6 +7,7 @@ use App\Models\ActivityLog;
 use App\Models\Role;
 use App\Models\SecurityAuditLog;
 use App\Models\User;
+use App\Services\Notifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -226,6 +227,11 @@ class UserController extends Controller
             'role_id' => $role->id,
             'role'    => $role->key,
         ], auth()->user(), null, ['type' => 'user', 'id' => $user->id]);
+
+        Notifier::dispatch('user.created', [
+            'subject' => $user,
+            'data'    => ['name' => $user->name, 'email' => $user->email],
+        ]);
 
         return response()->json([
             'message' => 'تم إنشاء المستخدم بنجاح',

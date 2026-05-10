@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\LegalCaseController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\InvoicePdfController;
 use App\Http\Controllers\Api\GlobalSearchController;
+use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\FacilityController;
 use App\Http\Controllers\Api\TransactionController;
 use App\Http\Controllers\Api\VoteController;
@@ -93,6 +94,20 @@ Route::prefix('v1')->group(function () {
             Route::get('/search', [GlobalSearchController::class, 'search']);
             Route::get('/search/ai', [GlobalSearchController::class, 'aiSearch']);
         });
+
+        // ── Notifications (in-app, real-time via polling) ────────────────
+        // No permission gate beyond auth — every user can see their own
+        // notifications; the rows are scoped to user_id / owner_id server-side.
+        Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+        Route::get('/notifications/catalog', [NotificationController::class, 'catalog'])
+            ->middleware('permission:settings.view');
+        Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
+        Route::delete('/notifications/clear', [NotificationController::class, 'clearAll']);
+        Route::post('/notifications/test', [NotificationController::class, 'sendTest'])
+            ->middleware('permission:settings.update');
+        Route::get('/notifications', [NotificationController::class, 'index']);
+        Route::post('/notifications/{id}/read', [NotificationController::class, 'markRead'])->whereNumber('id');
+        Route::delete('/notifications/{id}', [NotificationController::class, 'destroy'])->whereNumber('id');
 
         // AI (gated to ai.use; aggressively throttled to bound LLM cost & abuse)
         Route::middleware(['permission:ai.use', 'throttle:30,1'])->group(function () {
