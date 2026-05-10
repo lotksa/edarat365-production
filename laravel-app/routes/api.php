@@ -48,6 +48,9 @@ Route::prefix('v1')->group(function () {
         'service' => 'edarat365-api',
     ]));
 
+    // Public Turnstile bootstrap — returns site_key + per-page flags only.
+    Route::get('/auth/turnstile-config', [AuthController::class, 'turnstileConfig']);
+
     // Strict per-IP + per-identifier throttles to defeat brute-force / credential stuffing.
     Route::post('/auth/login', [AuthController::class, 'login'])
         ->middleware('auth.throttle:5,1,login');

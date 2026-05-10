@@ -7,6 +7,7 @@ use App\Models\LoginOtp;
 use App\Models\SecurityAuditLog;
 use App\Models\User;
 use App\Services\OtpService;
+use App\Services\TurnstileService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,7 +22,20 @@ class AuthController extends Controller
     private const MAX_FAILED_ATTEMPTS = 5;
     private const LOCKOUT_MINUTES = 30;
 
-    public function __construct(private readonly OtpService $otp) {}
+    public function __construct(
+        private readonly OtpService $otp,
+        private readonly TurnstileService $turnstile,
+    ) {}
+
+    /**
+     * Public endpoint exposing the Turnstile site_key + per-page flags so the
+     * SPA knows whether (and where) to render the widget. Never returns the
+     * secret_key.
+     */
+    public function turnstileConfig(): JsonResponse
+    {
+        return response()->json($this->turnstile->publicConfig());
+    }
 
     private function normalize(string $identifier): string
     {
@@ -96,6 +110,10 @@ class AuthController extends Controller
             'identifier' => ['required', 'string', 'max:255'],
             'purpose'    => ['nullable', 'in:login,password_reset'],
         ]);
+
+        // Bot defense — runs BEFORE we touch the DB or send any SMS/email so an
+        // attacker cannot use this endpoint to enumerate accounts or pump SMS.
+        $this->turnstile->assertVerified($request, TurnstileService::PAGE_ADMIN_LOGIN);
 
         $identifier = $this->normalize($payload['identifier']);
         $purpose = $payload['purpose'] ?? OtpService::PURPOSE_LOGIN;
@@ -243,6 +261,8 @@ class AuthController extends Controller
                 ->uncompromised()],
         ]);
 
+        $this->turnstile->assertVerified($request, TurnstileService::PAGE_ADMIN_LOGIN);
+
         $identifier = $this->normalize($payload['identifier']);
 
         if (!$this->verifyResetToken($identifier, $payload['reset_token'])) {
@@ -285,6 +305,8 @@ class AuthController extends Controller
             'email'      => ['required_without:identifier', 'string'],
             'password'   => ['required', 'string', 'min:1'],
         ]);
+
+        $this->turnstile->assertVerified($request, TurnstileService::PAGE_ADMIN_LOGIN);
 
         $rawIdentifier = $credentials['identifier'] ?? $credentials['email'];
         $identifier = $this->normalize($rawIdentifier);

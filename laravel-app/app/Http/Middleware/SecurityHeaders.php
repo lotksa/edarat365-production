@@ -21,9 +21,12 @@ class SecurityHeaders
         // The Vue app is served from same-origin; fonts come from Google Fonts.
         // Cloudflare Insights beacon (web analytics) is allowed because the
         // domain proxies through Cloudflare and CF auto-injects the beacon.
-        $cf = "https://static.cloudflareinsights.com";
-        $cfApi = "https://cloudflareinsights.com";
-        $scriptSrc = "'self' 'unsafe-inline' 'unsafe-eval' {$cf}";
+        // Cloudflare Turnstile loads its API script + renders an iframe, so
+        // both script-src and frame-src must allow challenges.cloudflare.com.
+        $cfInsights = "https://static.cloudflareinsights.com";
+        $cfInsightsApi = "https://cloudflareinsights.com";
+        $cfTurnstile = "https://challenges.cloudflare.com";
+        $scriptSrc = "'self' 'unsafe-inline' 'unsafe-eval' {$cfInsights} {$cfTurnstile}";
 
         $csp = "default-src 'self'; "
              . "script-src {$scriptSrc}; "
@@ -31,7 +34,11 @@ class SecurityHeaders
              . "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
              . "font-src 'self' https://fonts.gstatic.com data:; "
              . "img-src 'self' data: blob: https:; "
-             . "connect-src 'self' https: {$cfApi}; "
+             . "connect-src 'self' https: {$cfInsightsApi} {$cfTurnstile}; "
+             // Allow Turnstile's challenge iframe in addition to same-origin
+             // assets (PDF / document previews use /storage/* on this origin).
+             . "frame-src 'self' {$cfTurnstile}; "
+             . "child-src 'self' {$cfTurnstile}; "
              // 'self' (not 'none') so the SPA can preview uploaded PDFs / images
              // in <iframe>s served from /storage/* on the same origin. External
              // sites are still blocked from framing us (clickjacking defence).
