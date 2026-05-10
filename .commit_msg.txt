@@ -1,9 +1,0 @@
-feat(property-detail): complete tables + create buttons for 6 tabs
-
-Ship the new PropertyDetailView build that turns Facilities,
-Maintenance, Contracts, Meetings, Legal Cases, and Approvals
-tabs into full EdaratTable-style lists with property-scoped
-Create modals. New bundle index-BN17DsDm.js + index-DGwXxc71.css.
-
-Non-destructive: only frontend assets are swapped; no storage or
-DB operations are performed by this deploy (per PROJECT_RULES.md).
