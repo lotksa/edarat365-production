@@ -45,11 +45,13 @@ class InvoicePdfController extends Controller
                 'notes'          => $invoice->notes,
                 'description'    => $invoice->description,
             ],
+            // Customer block intentionally omits the national ID. ZATCA phase-2
+            // does not require the buyer's national ID on a B2C tax invoice and
+            // including it on a printable / shareable document leaks PII.
             'owner' => [
-                'name'        => $invoice->owner?->full_name ?? '-',
-                'national_id' => $invoice->owner?->national_id ?? '',
-                'phone'       => $invoice->owner?->phone ?? '',
-                'email'       => $invoice->owner?->email ?? '',
+                'name'  => $invoice->owner?->full_name ?? '-',
+                'phone' => $invoice->owner?->phone ?? '',
+                'email' => $invoice->owner?->email ?? '',
             ],
             'company' => [
                 'name_ar'       => $tax['company_name_ar'] ?? ($generalSettings['site_name_ar'] ?? 'إدارات 365'),
