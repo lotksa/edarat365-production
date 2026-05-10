@@ -164,8 +164,11 @@ class UserController extends Controller
     }
 
     /**
-     * Remove the user's uploaded profile picture (does not touch the
-     * legacy `avatar_url` column).
+     * Remove the user's profile picture. We clear BOTH the locally-stored
+     * upload (avatar_path) AND the legacy external URL (avatar_url) so the
+     * UI's "Remove" action does what the user expects regardless of which
+     * source produced the currently-visible avatar (uploaded image,
+     * seeder-provided Unsplash URL, etc.).
      */
     public function removeAvatar(int $id): JsonResponse
     {
@@ -175,6 +178,7 @@ class UserController extends Controller
             Storage::disk('public')->delete($user->avatar_path);
         }
         $user->avatar_path = null;
+        $user->avatar_url  = null;
         $user->save();
 
         ActivityLog::record('user', $user->id, 'avatar_removed', 'تم إزالة الصورة الشخصية');
