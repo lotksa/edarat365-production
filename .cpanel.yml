@@ -66,6 +66,9 @@ deployment:
     # (key/MAC mismatch from a past APP_KEY change, double-encryption, or
     # ciphertext that was stored before the column was widened to TEXT).
     - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan pii:cleanup-corrupted --apply || true
+    # Drop attachment rows whose underlying file went missing from the public
+    # disk so the UI no longer tries to render broken thumbnails.
+    - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan attachments:purge-orphans --apply || true
     # Ensure the public storage symlink exists so uploaded files are served
     # by Apache directly (public_html/storage → laravel-app/storage/app/public).
     # We do NOT use `php artisan storage:link` here because Laravel's default

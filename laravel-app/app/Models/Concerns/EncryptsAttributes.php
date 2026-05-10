@@ -70,27 +70,100 @@ trait EncryptsAttributes
      *   2. The value looks like our ciphertext but the MAC fails (truncation,
      *      APP_KEY mismatch, double-encryption, etc.) → return null instead
      *      of leaking the ciphertext blob into API responses / the UI.
+     *
+     * NOTE: this is also called recursively by `attributesToArray()` below so
+     * a single implementation handles both direct property access (`$m->col`)
+     * and JSON serialization (`response()->json($model)`).
      */
     public function getAttribute($key)
     {
         $value = parent::getAttribute($key);
         if ($this->isEncryptableAttribute($key) && is_string($value) && $value !== '') {
-            try {
-                return Crypt::decryptString($value);
-            } catch (\Throwable $e) {
-                // Heuristic: Laravel's Crypt::encryptString output is base64
-                // of a JSON envelope, so a base64-decoded value that starts
-                // with '{"iv":' is one of ours. If it looks like ciphertext
-                // but we can't read it, fail closed and hide the blob.
-                $decoded = base64_decode($value, true);
-                if (is_string($decoded) && str_starts_with($decoded, '{"iv":')) {
-                    return null;
-                }
-                // Legacy plaintext → return as-is so existing rows still work
-                return $value;
-            }
+            return $this->decryptEncryptableValue($value);
         }
         return $value;
+    }
+
+    /**
+     * Override `attributesToArray()` so JSON / array serialization decrypts
+     * encryptable columns. Laravel's default implementation reads from
+     * `$this->attributes` directly which BYPASSES our `getAttribute()` override
+     * — so without this override, `response()->json($model)` would leak the
+     * raw ciphertext blob to the API client (and the UI would render it).
+     *
+     * Mutators (`get<Name>Attribute`) are picked up by Laravel automatically,
+     * but our trait deliberately keeps the encryption opt-in via a single
+     * `$encryptable` array so models don't need one accessor per column. Hence
+     * the manual substitution below.
+     */
+    public function attributesToArray()
+    {
+        $attributes = parent::attributesToArray();
+
+        if (property_exists($this, 'encryptable') && is_array($this->encryptable)) {
+            foreach ($this->encryptable as $col) {
+                if (!array_key_exists($col, $attributes)) {
+                    continue;
+                }
+                $raw = $attributes[$col];
+                if (!is_string($raw) || $raw === '') {
+                    continue;
+                }
+                $attributes[$col] = $this->decryptEncryptableValue($raw);
+            }
+        }
+
+        return $attributes;
+    }
+
+    /**
+     * Centralized decrypt-or-fail-closed helper. Used both by the
+     * `getAttribute` override and the `attributesToArray` override so the
+     * two code paths can never disagree.
+     *
+     * Defensive against legacy double-encryption: peels up to N layers as
+     * long as each successive plaintext still looks like our Crypt envelope.
+     */
+    private function decryptEncryptableValue(string $value): ?string
+    {
+        $current = $value;
+
+        for ($i = 0; $i < 5; $i++) {
+            try {
+                $next = Crypt::decryptString($current);
+            } catch (\Throwable $e) {
+                if ($this->looksLikeCryptEnvelope($current)) {
+                    // Looks like our ciphertext but cannot be decrypted (key/MAC
+                    // mismatch, truncation, double-encryption with a key we no
+                    // longer have, …). Fail closed — never expose the blob.
+                    return null;
+                }
+                // Legacy plaintext that was stored before encryption was
+                // enabled, OR the layer we just unwrapped was the last one.
+                return $current;
+            }
+
+            // Successfully peeled one layer. If what we got is itself a Crypt
+            // envelope, peel another layer (handles legacy double-encryption).
+            if ($this->looksLikeCryptEnvelope($next)) {
+                $current = $next;
+                continue;
+            }
+
+            return $next;
+        }
+
+        // Pathologically deep nesting — refuse to expose anything.
+        return null;
+    }
+
+    private function looksLikeCryptEnvelope(string $value): bool
+    {
+        if ($value === '') {
+            return false;
+        }
+        $decoded = base64_decode($value, true);
+        return is_string($decoded) && str_starts_with($decoded, '{"iv":');
     }
 
     protected function isEncryptableAttribute(string $key): bool
