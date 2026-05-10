@@ -29,6 +29,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'permission'     => \App\Http\Middleware\CheckPermission::class,
             'auth.throttle'  => \App\Http\Middleware\LoginThrottle::class,
+            'idle.timeout'   => \App\Http\Middleware\IdleTimeout::class,
         ]);
 
         // API-only backend: never redirect guests to a login page; always JSON 401.

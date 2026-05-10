@@ -50,6 +50,8 @@ Route::prefix('v1')->group(function () {
 
     // Public Turnstile bootstrap — returns site_key + per-page flags only.
     Route::get('/auth/turnstile-config', [AuthController::class, 'turnstileConfig']);
+    // Public session bootstrap — exposes the idle timeout window (seconds).
+    Route::get('/auth/session-config', [AuthController::class, 'sessionConfig']);
 
     // Strict per-IP + per-identifier throttles to defeat brute-force / credential stuffing.
     Route::post('/auth/login', [AuthController::class, 'login'])
@@ -64,7 +66,10 @@ Route::prefix('v1')->group(function () {
         ->middleware('auth.throttle:3,1,reset');
 
     // ── Authenticated endpoints ───────────────────────────────────────────────
-    Route::middleware('auth:sanctum')->group(function () {
+    // SECURITY: every authenticated request runs through `idle.timeout` after
+    // Sanctum auth so a token that has been idle longer than the configured
+    // window (default 30 min) is revoked server-side.
+    Route::middleware(['auth:sanctum', 'idle.timeout'])->group(function () {
 
         // Account / session (any authenticated user)
         Route::post('/auth/logout', [AuthController::class, 'logout']);

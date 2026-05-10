@@ -430,6 +430,10 @@ class SettingsController extends Controller
             'otp_length' => 6,
             'otp_ttl_minutes' => 10,
             'password_reset_enabled' => true,
+            // SECURITY: idle window in minutes. The IdleTimeout middleware
+            // revokes the Sanctum token if no authenticated request happens
+            // within this window. Clamped 1..1440 server-side.
+            'idle_timeout_minutes' => 30,
         ],
         'mail_templates' => [
             'verification' => [

@@ -37,6 +37,26 @@ class AuthController extends Controller
         return response()->json($this->turnstile->publicConfig());
     }
 
+    /**
+     * Public endpoint returning the idle timeout window in seconds so the SPA
+     * can keep its activity timer in sync with the server-side configuration.
+     * Falls back to 30 minutes if the setting is missing or invalid.
+     */
+    public function sessionConfig(): JsonResponse
+    {
+        try {
+            $cfg = \App\Models\Setting::getByKey('auth_settings', []);
+            $minutes = (int) ($cfg['idle_timeout_minutes'] ?? 30);
+        } catch (\Throwable $e) {
+            $minutes = 30;
+        }
+        $minutes = max(1, min(1440, $minutes));
+        return response()->json([
+            'idle_timeout_seconds' => $minutes * 60,
+            'idle_warning_seconds' => max(30, min(120, (int) ($minutes * 60 * 0.1))),
+        ]);
+    }
+
     private function normalize(string $identifier): string
     {
         return Str::lower(trim($identifier));
