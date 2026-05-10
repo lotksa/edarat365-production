@@ -9,6 +9,7 @@ use App\Models\SecurityAuditLog;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
 class UserController extends Controller
@@ -68,7 +69,154 @@ class UserController extends Controller
     public function show(int $id): JsonResponse
     {
         $user = User::with(['userRole.permissions'])->findOrFail($id);
-        return response()->json(['data' => $user]);
+
+        // Recent timeline (capped) — full paginated history is exposed via
+        // the dedicated /users/{id}/activity-log endpoint.
+        $logs = ActivityLog::query()
+            ->where(function ($q) use ($id) {
+                $q->where('performer_id', $id)
+                  ->orWhere(function ($qq) use ($id) {
+                      $qq->where('subject_type', 'user')->where('subject_id', $id);
+                  });
+            })
+            ->orderByDesc('created_at')
+            ->limit(50)
+            ->get();
+
+        $data = $user->toArray();
+        $data['activity_logs'] = $logs;
+
+        return response()->json(['data' => $data]);
+    }
+
+    /**
+     * Paginated activity log for a single user. Combines:
+     *   - actions performed BY this user (performer_id = $id), and
+     *   - actions whose subject IS this user (login/logout, password
+     *     changes, status toggles, role updates).
+     *
+     * Query params: page, per_page (default 25, max 100), action (filter).
+     */
+    public function activityLog(Request $request, int $id): JsonResponse
+    {
+        $user = User::findOrFail($id);
+
+        $perPage = min((int) $request->query('per_page', 25), 100);
+        $action = $request->query('action');
+
+        $query = ActivityLog::query()
+            ->where(function ($q) use ($id) {
+                $q->where('performer_id', $id)
+                  ->orWhere(function ($qq) use ($id) {
+                      $qq->where('subject_type', 'user')->where('subject_id', $id);
+                  });
+            });
+
+        if ($action) {
+            $query->where('action', $action);
+        }
+
+        $records = $query->orderByDesc('created_at')->paginate($perPage);
+
+        return response()->json([
+            'data' => $records->items(),
+            'meta' => [
+                'current_page' => $records->currentPage(),
+                'last_page'    => $records->lastPage(),
+                'per_page'     => $records->perPage(),
+                'total'        => $records->total(),
+            ],
+            'user' => ['id' => $user->id, 'name' => $user->name],
+        ]);
+    }
+
+    /**
+     * Upload (or replace) the user's profile picture. Stored on the
+     * public disk under users/avatars/. Old file is removed on replace.
+     */
+    public function uploadAvatar(Request $request, int $id): JsonResponse
+    {
+        $user = User::findOrFail($id);
+
+        $request->validate([
+            'avatar' => ['required', 'image', 'mimes:jpg,jpeg,png,webp,gif', 'max:4096'],
+        ], [
+            'avatar.required' => 'يرجى اختيار صورة',
+            'avatar.image'    => 'الملف يجب أن يكون صورة',
+            'avatar.mimes'    => 'صيغ الصور المسموحة: jpg, jpeg, png, webp, gif',
+            'avatar.max'      => 'حجم الصورة الأقصى 4 ميجابايت',
+        ]);
+
+        if (!empty($user->avatar_path) && Storage::disk('public')->exists($user->avatar_path)) {
+            Storage::disk('public')->delete($user->avatar_path);
+        }
+
+        $path = $request->file('avatar')->store('users/avatars', 'public');
+        $user->avatar_path = $path;
+        $user->save();
+
+        ActivityLog::record('user', $user->id, 'avatar_updated', 'تم تحديث الصورة الشخصية');
+
+        return response()->json([
+            'message' => 'تم تحديث الصورة الشخصية',
+            'data'    => $user->fresh()->load('userRole'),
+        ]);
+    }
+
+    /**
+     * Remove the user's uploaded profile picture (does not touch the
+     * legacy `avatar_url` column).
+     */
+    public function removeAvatar(int $id): JsonResponse
+    {
+        $user = User::findOrFail($id);
+
+        if (!empty($user->avatar_path) && Storage::disk('public')->exists($user->avatar_path)) {
+            Storage::disk('public')->delete($user->avatar_path);
+        }
+        $user->avatar_path = null;
+        $user->save();
+
+        ActivityLog::record('user', $user->id, 'avatar_removed', 'تم إزالة الصورة الشخصية');
+
+        return response()->json([
+            'message' => 'تم إزالة الصورة الشخصية',
+            'data'    => $user->fresh()->load('userRole'),
+        ]);
+    }
+
+    /**
+     * Reset (set) a user's password from the User Detail modal. Enforces
+     * the same strong-password policy used in store/update; revokes all
+     * outstanding tokens so the prior session cannot continue.
+     */
+    public function resetPassword(Request $request, int $id): JsonResponse
+    {
+        $user = User::findOrFail($id);
+
+        $data = $request->validate([
+            'password' => ['required', \Illuminate\Validation\Rules\Password::min(12)
+                ->letters()->mixedCase()->numbers()->symbols()],
+        ], [
+            'password.required' => 'كلمة المرور مطلوبة',
+        ]);
+
+        $user->password = $data['password']; // hashed cast handles hashing
+        $user->password_changed_at = now();
+        $user->failed_login_attempts = 0;
+        $user->locked_until = null;
+        $user->save();
+
+        // Force re-login on every device so the old token cannot continue.
+        $user->tokens()->delete();
+
+        ActivityLog::record('user', $user->id, 'password_reset', 'تم إعادة تعيين كلمة المرور');
+        SecurityAuditLog::record('auth.password.reset_by_admin', 'success', [],
+            auth()->user(), null, ['type' => 'user', 'id' => $user->id], $request);
+
+        return response()->json([
+            'message' => 'تم إعادة تعيين كلمة المرور',
+        ]);
     }
 
     public function store(Request $request): JsonResponse

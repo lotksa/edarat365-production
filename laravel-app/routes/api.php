@@ -107,6 +107,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/users/stats', [UserController::class, 'stats']);
             Route::get('/users', [UserController::class, 'index']);
             Route::get('/users/{id}', [UserController::class, 'show']);
+            Route::get('/users/{id}/activity-log', [UserController::class, 'activityLog']);
         });
         Route::post('/users', [UserController::class, 'store'])
             ->middleware('permission:users.create');
@@ -118,6 +119,14 @@ Route::prefix('v1')->group(function () {
             ->middleware('permission:users.delete');
         Route::patch('/users/{id}/toggle-status', [UserController::class, 'toggleStatus'])
             ->middleware('permission:users.toggle_status');
+
+        // ── User Detail modal — avatar + reset password ─────────────────────
+        Route::post('/users/{id}/avatar', [UserController::class, 'uploadAvatar'])
+            ->middleware('permission:users.update');
+        Route::delete('/users/{id}/avatar', [UserController::class, 'removeAvatar'])
+            ->middleware('permission:users.update');
+        Route::post('/users/{id}/reset-password', [UserController::class, 'resetPassword'])
+            ->middleware('permission:users.update');
 
         // ── Roles & Permissions management (strict) ──────────────────────────
         Route::middleware('permission:roles.view')->group(function () {

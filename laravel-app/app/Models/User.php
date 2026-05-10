@@ -20,7 +20,7 @@ class User extends Authenticatable
 
     protected $fillable = [
         'name', 'email', 'phone', 'role', 'role_id',
-        'is_active', 'last_login_at', 'avatar_url', 'password',
+        'is_active', 'last_login_at', 'avatar_url', 'avatar_path', 'password',
         'password_changed_at',
         // Note: failed_login_attempts, locked_until, last_failed_login_at
         // and last_login_ip are intentionally NOT fillable — they must be
@@ -90,4 +90,27 @@ class User extends Authenticatable
         $role = $this->relationLoaded('userRole') ? $this->userRole : $this->userRole()->first();
         return $role instanceof Role && $role->key === 'super_admin';
     }
+
+    /**
+     * Resolves the best avatar URL for this user. Order of preference:
+     *   1. Locally-uploaded file under storage/app/public/users/avatars
+     *      (the new `avatar_path` column populated via the User Detail
+     *      modal upload control).
+     *   2. The legacy `avatar_url` column (an external URL from older
+     *      profile flows).
+     *   3. null — the frontend falls back to a generated initials avatar.
+     */
+    public function getAvatarSrcAttribute(): ?string
+    {
+        if (!empty($this->avatar_path)) {
+            // Storage::url() prepends APP_URL/storage/...
+            return \Illuminate\Support\Facades\Storage::disk('public')->url($this->avatar_path);
+        }
+        if (!empty($this->avatar_url)) {
+            return $this->avatar_url;
+        }
+        return null;
+    }
+
+    protected $appends = ['avatar_src'];
 }

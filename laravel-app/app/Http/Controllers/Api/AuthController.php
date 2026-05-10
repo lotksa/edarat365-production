@@ -122,6 +122,23 @@ class AuthController extends Controller
         ]);
 
         SecurityAuditLog::record($event, 'success', [], $user, $user->email ?? $user->phone, null, $request);
+
+        // Mirror the auth event into the human-facing activity timeline so
+        // the per-user "Activity Log" tab on the User Detail page shows
+        // sign-ins next to module CRUD actions.
+        \App\Models\ActivityLog::create([
+            'subject_type' => 'user',
+            'subject_id'   => $user->id,
+            'action'       => 'login',
+            'description'  => 'تسجيل دخول إلى النظام',
+            'performer'    => $user->name,
+            'performer_id' => $user->id,
+            'new_values'   => [
+                'ip'      => $request->ip(),
+                'event'   => $event,
+                'agent'   => substr((string) $request->userAgent(), 0, 255),
+            ],
+        ]);
     }
 
     public function requestOtp(Request $request): JsonResponse
@@ -377,6 +394,20 @@ class AuthController extends Controller
 
         if ($user) {
             SecurityAuditLog::record('auth.logout', 'success', [], $user, $user->email ?? $user->phone, null, $request);
+
+            // Mirror logout into the human-facing activity timeline.
+            \App\Models\ActivityLog::create([
+                'subject_type' => 'user',
+                'subject_id'   => $user->id,
+                'action'       => 'logout',
+                'description'  => 'تسجيل خروج من النظام',
+                'performer'    => $user->name,
+                'performer_id' => $user->id,
+                'new_values'   => [
+                    'ip'    => $request->ip(),
+                    'agent' => substr((string) $request->userAgent(), 0, 255),
+                ],
+            ]);
         }
 
         return response()->json([
