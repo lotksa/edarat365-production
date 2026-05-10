@@ -231,6 +231,13 @@ Route::prefix('v1')->group(function () {
         Route::patch('/units/{id}/toggle-status', [UnitController::class, 'toggleStatus'])->middleware('permission:units.update');
         Route::post('/units/{unitId}/components', [UnitController::class, 'storeComponents'])->middleware('permission:units.update');
         Route::post('/units/{unitId}/owners', [UnitController::class, 'syncOwners'])->middleware('permission:units.update');
+        // Generic attachments API – accepts both images and documents
+        // (PDF, Word, Excel, …). The `images` routes below are kept as
+        // backward-compat aliases so older frontend builds keep working.
+        Route::post('/units/{unitId}/attachments', [UnitController::class, 'uploadAttachments'])->middleware('permission:units.update');
+        Route::put('/units/{unitId}/attachments/{attachmentId}', [UnitController::class, 'updateAttachment'])->middleware('permission:units.update');
+        Route::delete('/units/{unitId}/attachments/{attachmentId}', [UnitController::class, 'deleteAttachment'])->middleware('permission:units.update');
+
         Route::post('/units/{unitId}/images', [UnitController::class, 'uploadImages'])->middleware('permission:units.update');
         Route::put('/units/{unitId}/images/{imageId}', [UnitController::class, 'updateImage'])->middleware('permission:units.update');
         Route::delete('/units/{unitId}/images/{imageId}', [UnitController::class, 'deleteImage'])->middleware('permission:units.update');

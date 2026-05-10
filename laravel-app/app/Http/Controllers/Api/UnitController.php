@@ -236,60 +236,130 @@ class UnitController extends Controller
         ]);
     }
 
-    /* ─── Unit Images ─── */
+    /* ─── Unit Attachments (images + documents) ─── */
 
-    public function uploadImages(Request $request, int $unitId): JsonResponse
+    /**
+     * Hard cap on how many attachments (images + documents combined) can be
+     * tied to a single unit. Existing rows are still rendered if the cap is
+     * lowered later — the cap only blocks new uploads.
+     */
+    private const ATTACHMENT_CAP = 20;
+
+    /** Allowed image extensions for the `mimes:` validation rule. */
+    private const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+
+    /** Allowed document extensions for the `mimes:` validation rule. */
+    private const DOC_EXTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv'];
+
+    /** Per-file upload size cap (kilobytes) – 15 MB is enough for typical PDFs. */
+    private const MAX_FILE_KB = 15360;
+
+    /**
+     * Generic upload endpoint that accepts both images and documents through
+     * either of two field names: `attachments[]` (preferred) or `images[]`
+     * (kept so older clients keep working without a new build).
+     */
+    public function uploadAttachments(Request $request, int $unitId): JsonResponse
     {
         $unit = Unit::findOrFail($unitId);
         $current = $unit->images()->count();
+        $remaining = max(0, self::ATTACHMENT_CAP - $current);
+
+        $field = $request->hasFile('attachments') ? 'attachments' : 'images';
+        $allExts = array_merge(self::IMAGE_EXTS, self::DOC_EXTS);
 
         $request->validate([
-            'images'   => ['required', 'array', 'min:1', 'max:' . (10 - $current)],
-            'images.*' => ['image', 'max:5120'],
+            $field         => ['required', 'array', 'min:1', 'max:' . $remaining],
+            $field . '.*'  => ['file', 'mimes:' . implode(',', $allExts), 'max:' . self::MAX_FILE_KB],
         ], [
-            'images.max' => 'يمكنك رفع ' . (10 - $current) . ' صور فقط كحد أقصى',
-            'images.*.image' => 'الملف يجب أن يكون صورة',
-            'images.*.max'   => 'حجم الصورة يجب ألا يتجاوز 5 ميجابايت',
+            $field . '.max'         => 'يمكنك رفع ' . $remaining . ' ملفات فقط كحد أقصى',
+            $field . '.*.mimes'     => 'نوع الملف غير مدعوم (الأنواع المسموحة: ' . implode(', ', $allExts) . ')',
+            $field . '.*.max'       => 'حجم الملف يجب ألا يتجاوز ' . (self::MAX_FILE_KB / 1024) . ' ميجابايت',
         ]);
 
-        if ($current >= 10) {
-            return response()->json(['message' => 'تم بلوغ الحد الأقصى (10 صور)'], 422);
+        if ($remaining <= 0) {
+            return response()->json([
+                'message' => 'تم بلوغ الحد الأقصى (' . self::ATTACHMENT_CAP . ' ملفات)',
+            ], 422);
         }
 
         $uploaded = [];
-        foreach ($request->file('images') as $idx => $file) {
-            if ($current + $idx >= 10) break;
-            $path = $file->store("units/{$unitId}/images", 'public');
+        $imageCount = 0;
+        $docCount = 0;
+        foreach ($request->file($field) as $idx => $file) {
+            if ($current + $idx >= self::ATTACHMENT_CAP) {
+                break;
+            }
+            $ext = strtolower($file->getClientOriginalExtension() ?: $file->extension());
+            $kind = in_array($ext, self::IMAGE_EXTS, true) ? 'image' : 'document';
+            $folder = $kind === 'image'
+                ? "units/{$unitId}/images"
+                : "units/{$unitId}/documents";
+            $path = $file->store($folder, 'public');
             $uploaded[] = $unit->images()->create([
                 'path'          => $path,
                 'original_name' => $file->getClientOriginalName(),
                 'sort_order'    => $current + $idx,
+                'kind'          => $kind,
+                'mime_type'     => $file->getMimeType(),
+                'size_bytes'    => $file->getSize(),
             ]);
+            if ($kind === 'image') {
+                $imageCount++;
+            } else {
+                $docCount++;
+            }
         }
 
-        ActivityLog::record('unit', $unitId, 'images_uploaded', 'تم رفع ' . count($uploaded) . ' صورة للوحدة');
+        $msg = 'تم رفع ' . count($uploaded) . ' ملف للوحدة'
+            . ($imageCount ? " (صور: {$imageCount}" . ($docCount ? ", مستندات: {$docCount}" : '') . ')'
+                : ($docCount ? " (مستندات: {$docCount})" : ''));
+        ActivityLog::record('unit', $unitId, 'attachments_uploaded', $msg);
 
         return response()->json([
-            'message' => 'تم رفع الصور بنجاح',
+            'message' => 'تم رفع الملفات بنجاح',
             'data'    => $uploaded,
         ]);
     }
 
-    public function updateImage(Request $request, int $unitId, int $imageId): JsonResponse
+    /** Backward-compat alias: the original images-only route now just defers
+     *  to the generic uploader so existing front-end builds keep working. */
+    public function uploadImages(Request $request, int $unitId): JsonResponse
     {
-        $image = UnitImage::where('unit_id', $unitId)->findOrFail($imageId);
-        $request->validate(['caption' => ['nullable', 'string', 'max:255']]);
-        $image->update($request->only('caption'));
-        return response()->json(['message' => 'تم التحديث', 'data' => $image]);
+        return $this->uploadAttachments($request, $unitId);
     }
 
+    public function updateAttachment(Request $request, int $unitId, int $attachmentId): JsonResponse
+    {
+        $att = UnitImage::where('unit_id', $unitId)->findOrFail($attachmentId);
+        $request->validate(['caption' => ['nullable', 'string', 'max:255']]);
+        $att->update($request->only('caption'));
+        return response()->json(['message' => 'تم التحديث', 'data' => $att]);
+    }
+
+    /** Backward-compat alias. */
+    public function updateImage(Request $request, int $unitId, int $imageId): JsonResponse
+    {
+        return $this->updateAttachment($request, $unitId, $imageId);
+    }
+
+    public function deleteAttachment(int $unitId, int $attachmentId): JsonResponse
+    {
+        $att = UnitImage::where('unit_id', $unitId)->findOrFail($attachmentId);
+        if ($att->path) {
+            Storage::disk('public')->delete($att->path);
+        }
+        $kind = $att->resolved_kind ?? 'image';
+        $att->delete();
+        ActivityLog::record('unit', $unitId, 'attachment_deleted',
+            $kind === 'document' ? 'تم حذف مستند من الوحدة' : 'تم حذف صورة من الوحدة');
+        return response()->json(['message' => 'تم الحذف']);
+    }
+
+    /** Backward-compat alias. */
     public function deleteImage(int $unitId, int $imageId): JsonResponse
     {
-        $image = UnitImage::where('unit_id', $unitId)->findOrFail($imageId);
-        Storage::disk('public')->delete($image->path);
-        $image->delete();
-        ActivityLog::record('unit', $unitId, 'image_deleted', 'تم حذف صورة من الوحدة');
-        return response()->json(['message' => 'تم حذف الصورة']);
+        return $this->deleteAttachment($unitId, $imageId);
     }
 
     /* ─── Unit Owners (Multi-Owner) ─── */
