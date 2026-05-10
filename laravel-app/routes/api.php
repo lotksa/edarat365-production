@@ -479,6 +479,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/reports/legal', [ReportController::class, 'legal']);
             Route::get('/reports/meetings', [ReportController::class, 'meetings']);
             Route::get('/reports/parking', [ReportController::class, 'parking']);
+            Route::get('/reports/users', [ReportController::class, 'users']);
         });
 
         // ── Export / Import ─────────────────────────────────────────────────
