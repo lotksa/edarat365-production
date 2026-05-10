@@ -58,22 +58,41 @@ deployment:
     - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan route:clear || true
     - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan cache:clear || true
     - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan view:clear || true
-    # Run pending migrations (each new migration uses Schema::hasColumn checks)
+    # ───────────────────────────────────────────────────────────────────
+    # PROJECT RULE — DEPLOYMENT MUST BE NON-DESTRUCTIVE
+    # See PROJECT_RULES.md (project root). Auto-deploy is FORBIDDEN from
+    # deleting / nullifying / mutating user data in:
+    #   • the database (rows, PII columns, attachments)
+    #   • storage/app/public/** (uploaded images, avatars, attachments)
+    # Any cleanup that touches data must be a manual artisan command run
+    # over SSH after a verified backup. The dry-run variants stay here so
+    # the deploy log surfaces what *would* change — but no `--apply`.
+    # ───────────────────────────────────────────────────────────────────
+    # Run pending migrations only. Migrations in this project are
+    # ADDITIVE — they NEVER drop columns, drop tables, or truncate data.
+    # If you need to remove schema, do it in a separate maintenance
+    # window with a fresh backup, NOT in .cpanel.yml.
     - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan migrate --force || true
-    # Re-encrypt legacy PII rows (idempotent: skips already-encrypted values)
+    # Re-encrypt legacy PII rows (idempotent: skips already-encrypted values).
+    # Safe by design — only writes when a column was stored as plaintext.
     - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan encrypt:legacy-pii || true
-    # Null out PII columns that look like our Crypt envelope but no longer decrypt
-    # (key/MAC mismatch from a past APP_KEY change, double-encryption, or
-    # ciphertext that was stored before the column was widened to TEXT).
-    - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan pii:cleanup-corrupted --apply || true
-    # Drop attachment rows whose underlying file went missing from the public
-    # disk so the UI no longer tries to render broken thumbnails.
-    - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan attachments:purge-orphans --apply || true
+    # PII / attachment cleanup commands run in DRY-RUN ONLY during deploy
+    # so the log records what *would* be cleaned. To actually apply the
+    # changes, an operator must run them manually over SSH:
+    #   php artisan pii:cleanup-corrupted --apply
+    #   php artisan attachments:purge-orphans --apply
+    - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan pii:cleanup-corrupted || true
+    - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan attachments:purge-orphans || true
     # Ensure the public storage symlink exists so uploaded files are served
     # by Apache directly (public_html/storage → laravel-app/storage/app/public).
     # We do NOT use `php artisan storage:link` here because Laravel's default
     # `public_path()` resolves to laravel-app/public, but on cPanel the web
     # root is public_html — so the manual symlink is the source of truth.
+    #
+    # SAFETY: only remove the symlink, NEVER `rm -rf` a directory. If the
+    # path ever got replaced with a real folder full of uploads, `rm -rf`
+    # would wipe them. The `[ -L ... ]` test guarantees we only delete
+    # when the path is in fact a symbolic link.
     - /bin/mkdir -p $LARAVEL_APP/storage/app/public
-    - /bin/rm -rf $PUBLIC_HTML/storage 2>/dev/null || true
-    - /bin/ln -sfn $LARAVEL_APP/storage/app/public $PUBLIC_HTML/storage
+    - if [ -L "$PUBLIC_HTML/storage" ]; then /bin/rm -f "$PUBLIC_HTML/storage"; fi
+    - if [ ! -e "$PUBLIC_HTML/storage" ]; then /bin/ln -s $LARAVEL_APP/storage/app/public $PUBLIC_HTML/storage; fi
