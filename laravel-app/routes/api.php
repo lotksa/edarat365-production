@@ -75,6 +75,11 @@ Route::prefix('v1')->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::get('/auth/me', [AccountController::class, 'me']);
         Route::put('/account/profile', [AccountController::class, 'updateProfile']);
+        // Self-service avatar upload/remove — no users.update permission
+        // required because the caller can only target their OWN account
+        // (the controller reads $request->user(), never an arbitrary id).
+        Route::post('/account/avatar', [AccountController::class, 'uploadAvatar']);
+        Route::delete('/account/avatar', [AccountController::class, 'removeAvatar']);
 
         // Dashboard
         Route::get('/dashboard', [DashboardController::class, 'index'])
