@@ -90,7 +90,53 @@ When writing a new migration:
 
 ---
 
-## 5. Verification After Every Deploy
+## 5. Pre-Deploy Server Verification & Backup Obligations
+
+Before pulling from GitHub, deploying through cPanel, or running any
+production update, the operator MUST treat the live site as containing
+real customer data and uploaded files.
+
+### Live server paths must be verified first
+
+Do not rely only on local docs or remembered paths. Before any production
+pull/deploy, verify the current server state with read-only checks:
+
+- The actual cPanel Git repository path.
+- The actual `public_html` path.
+- The actual `laravel-app` path.
+- The actual `laravel-app/storage/app/public` path.
+- Whether `public_html/storage` is a symlink or a real directory.
+- The presence of the current production `.env` file.
+- The current server Git commit/status before pulling new code.
+
+If `public_html/storage` is a real directory, do NOT delete, replace, or
+overwrite it during deploy. Stop and confirm the correct recovery-safe
+plan first.
+
+### Fresh backups are mandatory before deploy
+
+Before every production deploy, create and verify fresh backups for both:
+
+- The production database, using a dump that includes routines and
+  triggers when available.
+- The live uploaded-files directory: `laravel-app/storage/app/public`.
+
+Backups must be saved outside `public_html` and outside any directory
+that the deploy process overwrites. The operator must verify that the
+backup files exist and have a reasonable non-zero size before continuing.
+
+### Restore rules
+
+- Git rollback restores code only. It does NOT restore database rows or
+  uploaded files.
+- Database recovery must use the verified pre-deploy database dump.
+- Storage recovery must use the verified pre-deploy storage archive.
+- Before restoring over production, take an emergency snapshot of the
+  current damaged state unless doing so would worsen the incident.
+
+---
+
+## 6. Verification After Every Deploy
 
 Every deployment must end with at least:
 
@@ -102,7 +148,7 @@ Every deployment must end with at least:
 
 ---
 
-## 6. Why This Document Exists
+## 7. Why This Document Exists
 
 This file is the contract that protects production data. Anyone
 (human or AI) who pushes changes to either GitHub repo or runs a cPanel

@@ -177,13 +177,16 @@ class AssociationController extends Controller
         $data['meetings'] = \App\Models\Meeting::where('association_id', $id)
             ->orderByDesc('scheduled_at')->limit(50)->get();
 
-        $data['invoices'] = \App\Models\Invoice::whereHas('unit', fn($q) =>
-            $q->whereHas('property', fn($q2) => $q2->where('association_id', $id))
-        )->orderByDesc('id')->limit(50)->get();
+        $data['invoices'] = \App\Models\Invoice::where(function ($q) use ($id) {
+            $q->where('association_id', $id)
+              ->orWhereHas('property', fn($q2) => $q2->where('association_id', $id))
+              ->orWhereHas('unit', fn($q2) => $q2->whereHas('property', fn($q3) => $q3->where('association_id', $id)));
+        })->orderByDesc('id')->limit(50)->get();
 
-        $data['contracts'] = \App\Models\Contract::whereHas('unit', fn($q) =>
+        $data['contracts'] = \App\Models\Contract::where(function ($q) use ($id) {
             $q->whereHas('property', fn($q2) => $q2->where('association_id', $id))
-        )->orderByDesc('id')->limit(50)->get();
+              ->orWhereHas('unit', fn($q2) => $q2->whereHas('property', fn($q3) => $q3->where('association_id', $id)));
+        })->orderByDesc('id')->limit(50)->get();
 
         $data['maintenance_requests'] = \App\Models\MaintenanceRequest::where(function ($q) use ($id) {
             $q->where('association_id', $id)
