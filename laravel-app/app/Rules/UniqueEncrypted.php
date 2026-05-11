@@ -6,6 +6,7 @@ use App\Models\Concerns\EncryptsAttributes;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Uniqueness check for encrypted columns via the matching `_hash` (blind index).
@@ -36,17 +37,34 @@ class UniqueEncrypted implements ValidationRule
         if ($this->ignoreId !== null) {
             $q->where($this->idColumn, '!=', $this->ignoreId);
         }
+
+        // Soft-delete awareness. The original implementation wrapped a bare
+        // `whereNull('deleted_at')` in try/catch, but `whereNull()` only
+        // BUILDS the query — the SQL exception fires later inside `exists()`
+        // and was therefore never caught, causing a 500 on every table that
+        // doesn't have a `deleted_at` column (association_managers,
+        // property_managers, …). Check the schema up-front instead.
         if ($this->ignoreSoftDeleted) {
-            // Best-effort soft-delete awareness.
             try {
-                $q->whereNull('deleted_at');
+                if (Schema::hasColumn($this->table, 'deleted_at')) {
+                    $q->whereNull('deleted_at');
+                }
             } catch (\Throwable $e) {
-                // table without soft deletes — ignore
+                // hasColumn shouldn't throw in practice but defend anyway —
+                // never let a uniqueness check escalate into a 500.
             }
         }
 
-        if ($q->exists()) {
-            $fail("This :attribute is already in use.");
+        try {
+            if ($q->exists()) {
+                $fail("This :attribute is already in use.");
+            }
+        } catch (\Throwable $e) {
+            // Belt-and-suspenders: a misconfigured table/column should never
+            // crash the create flow; fail open (no uniqueness clash) and let
+            // the database's own constraints reject true duplicates.
+            \Illuminate\Support\Facades\Log::warning('UniqueEncrypted check failed on '
+                . $this->table . '.' . $this->hashColumn . ': ' . $e->getMessage());
         }
     }
 
