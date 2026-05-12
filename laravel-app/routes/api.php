@@ -263,6 +263,7 @@ Route::prefix('v1')->group(function () {
         Route::delete('/units/{id}', [UnitController::class, 'destroy'])->middleware('permission:units.delete');
         Route::patch('/units/{id}/toggle-status', [UnitController::class, 'toggleStatus'])->middleware('permission:units.update');
         Route::post('/units/{unitId}/components', [UnitController::class, 'storeComponents'])->middleware('permission:units.update');
+        Route::post('/units/{unitId}/private-parts', [UnitController::class, 'storePrivateParts'])->middleware('permission:units.update');
         Route::post('/units/{unitId}/owners', [UnitController::class, 'syncOwners'])->middleware('permission:units.update');
         // Generic attachments API – accepts both images and documents
         // (PDF, Word, Excel, …). The `images` routes below are kept as

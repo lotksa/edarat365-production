@@ -28,6 +28,17 @@ class UnitController extends Controller
             'area'            => ['nullable', 'numeric', 'min:0'],
             'deed_number'     => ['nullable', 'string', 'max:255'],
             'deed_source'     => ['nullable', 'string', 'max:255'],
+            'site_city'        => ['nullable', 'string', 'max:255'],
+            'site_district'    => ['nullable', 'string', 'max:255'],
+            'site_plan_number' => ['nullable', 'string', 'max:255'],
+            'site_plot_number' => ['nullable', 'string', 'max:255'],
+            'building_permit_number' => ['nullable', 'string', 'max:255'],
+            'building_permit_date'   => ['nullable', 'date'],
+            'street_name'      => ['nullable', 'string', 'max:255'],
+            'street_width'     => ['nullable', 'numeric', 'min:0'],
+            'land_area'        => ['nullable', 'numeric', 'min:0'],
+            'real_estate_number' => ['nullable', 'string', 'max:255'],
+            'built_up_area'    => ['nullable', 'numeric', 'min:0'],
             'bedrooms'        => ['nullable', 'integer', 'min:0'],
             'bathrooms'       => ['nullable', 'integer', 'min:0'],
             'furnished'       => ['nullable', 'string', 'max:100'],
@@ -50,7 +61,7 @@ class UnitController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $query = Unit::with(['property.association', 'owners', 'components']);
+        $query = Unit::with(['property.association', 'owners', 'components', 'privateParts']);
 
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
@@ -112,7 +123,7 @@ class UnitController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $unit = Unit::with(['property.association', 'owners', 'invoices', 'contracts', 'components', 'images', 'maintenanceRequests'])->findOrFail($id);
+        $unit = Unit::with(['property.association', 'owners', 'invoices', 'contracts', 'components', 'privateParts', 'images', 'maintenanceRequests'])->findOrFail($id);
         $data = $unit->toArray();
         $data['association_logo'] = $unit->property?->association?->logo ?? null;
         $data['activity_logs'] = ActivityLog::where('subject_type', 'unit')
@@ -149,6 +160,10 @@ class UnitController extends Controller
                     ]);
                 }
             }
+        }
+
+        if ($request->has('private_parts')) {
+            $this->replacePrivateParts($unit, $request->input('private_parts', []));
         }
 
         ActivityLog::record('unit', $id, 'updated', 'تم تحديث بيانات الوحدة');
@@ -234,6 +249,39 @@ class UnitController extends Controller
             'message' => 'تم حفظ مكونات الوحدة بنجاح',
             'data'    => $unit->components()->get(),
         ]);
+    }
+
+    public function storePrivateParts(Request $request, int $unitId): JsonResponse
+    {
+        $unit = Unit::findOrFail($unitId);
+        $data = $request->validate([
+            'parts'          => ['present', 'array'],
+            'parts.*.name'   => ['nullable', 'string', 'max:255'],
+            'parts.*.area'   => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        $this->replacePrivateParts($unit, $data['parts']);
+
+        return response()->json([
+            'message' => 'تم حفظ الأجزاء الخاصة بالوحدة بنجاح',
+            'data'    => $unit->privateParts()->get(),
+        ]);
+    }
+
+    private function replacePrivateParts(Unit $unit, array $parts): void
+    {
+        $unit->privateParts()->delete();
+        foreach ($parts as $idx => $part) {
+            $name = trim((string) ($part['name'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            $unit->privateParts()->create([
+                'name' => $name,
+                'area' => $part['area'] ?? null,
+                'sort_order' => $idx,
+            ]);
+        }
     }
 
     /* ─── Unit Attachments (images + documents) ─── */
