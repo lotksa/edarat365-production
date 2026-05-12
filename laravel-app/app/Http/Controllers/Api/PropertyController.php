@@ -18,6 +18,7 @@ use App\Models\Setting;
 use App\Models\UtilityMeter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class PropertyController extends Controller
@@ -355,9 +356,39 @@ class PropertyController extends Controller
     {
         $property = Property::findOrFail($id);
         $unitIds = $property->units()->pluck('id');
-        $ownerIds = \DB::table('unit_owners')->whereIn('unit_id', $unitIds)->pluck('owner_id')->unique();
-        $owners = Owner::whereIn('id', $ownerIds)->get();
+        $unitOwnerIds = DB::table('unit_owners')->whereIn('unit_id', $unitIds)->pluck('owner_id');
+        $propertyOwnerIds = $property->owners()->pluck('owners.id');
+        $ownerIds = $propertyOwnerIds->merge($unitOwnerIds)->unique()->values();
+
+        $owners = Owner::whereIn('id', $ownerIds)
+            ->orderBy('account_number')
+            ->get();
+
         return response()->json(['data' => $owners]);
+    }
+
+    public function attachOwner(Request $request, int $propertyId): JsonResponse
+    {
+        $data = $request->validate([
+            'owner_id' => ['required', 'integer', 'exists:owners,id'],
+        ]);
+
+        $property = Property::findOrFail($propertyId);
+        $property->owners()->syncWithoutDetaching([$data['owner_id']]);
+
+        ActivityLog::record(
+            'property',
+            $property->id,
+            'owner_attached',
+            'تم ربط مالك بالعقار',
+            null,
+            ['owner_id' => $data['owner_id']]
+        );
+
+        return response()->json([
+            'message' => 'Owner attached to property',
+            'data' => Owner::findOrFail($data['owner_id']),
+        ]);
     }
 
     public function relatedFacilities(int $id): JsonResponse

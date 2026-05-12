@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Property extends Model
@@ -43,6 +44,12 @@ class Property extends Model
     public function units(): HasMany
     {
         return $this->hasMany(Unit::class);
+    }
+
+    public function owners(): BelongsToMany
+    {
+        return $this->belongsToMany(Owner::class, 'property_owners')
+            ->withTimestamps();
     }
 
     public function propertyManager(): BelongsTo

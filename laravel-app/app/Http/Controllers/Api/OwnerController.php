@@ -25,6 +25,10 @@ class OwnerController extends Controller
                   ->orWhere('national_id', 'like', "%{$search}%")
                   ->orWhere('phone', 'like', "%{$search}%")
                   ->orWhere('email', 'like', "%{$search}%");
+
+                if (preg_match('/^\d{10}$/', (string) $search)) {
+                    $q->orWhere('national_id_hash', Owner::blindHash((string) $search));
+                }
             });
         }
 

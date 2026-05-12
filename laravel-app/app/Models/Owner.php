@@ -84,6 +84,12 @@ class Owner extends Model
             ->withTimestamps();
     }
 
+    public function properties(): BelongsToMany
+    {
+        return $this->belongsToMany(Property::class, 'property_owners')
+            ->withTimestamps();
+    }
+
     public function invoices(): HasMany
     {
         return $this->hasMany(Invoice::class);

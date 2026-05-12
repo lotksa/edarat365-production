@@ -244,6 +244,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/properties/{propertyId}/meters', [PropertyController::class, 'storeUtilityMeter'])->middleware('permission:properties.update');
         Route::put('/properties/{propertyId}/meters/{meterId}', [PropertyController::class, 'updateUtilityMeter'])->middleware('permission:properties.update');
         Route::delete('/properties/{propertyId}/meters/{meterId}', [PropertyController::class, 'destroyUtilityMeter'])->middleware('permission:properties.update');
+        Route::post('/properties/{propertyId}/owners', [PropertyController::class, 'attachOwner'])->middleware('permission:properties.update');
         Route::post('/properties/{propertyId}/documents', [PropertyController::class, 'storeDocument'])->middleware('permission:properties.update');
         Route::delete('/properties/{propertyId}/documents/{docId}', [PropertyController::class, 'destroyDocument'])->middleware('permission:properties.update');
         Route::post('/properties/{propertyId}/documents/bulk-delete', [PropertyController::class, 'bulkDeleteDocuments'])->middleware('permission:properties.update');
