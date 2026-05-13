@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
+use App\Models\Property;
 use App\Models\Setting;
 use App\Models\Unit;
 use App\Models\UnitComponent;
@@ -59,6 +60,36 @@ class UnitController extends Controller
         ];
     }
 
+    private function fillLocationFromProperty(array $data): array
+    {
+        if (empty($data['property_id'])) {
+            return $data;
+        }
+
+        if (!empty($data['site_city']) && !empty($data['site_district'])) {
+            return $data;
+        }
+
+        $property = Property::with(['cityRelation', 'districtRelation'])->find($data['property_id']);
+        if (!$property) {
+            return $data;
+        }
+
+        if (empty($data['site_city'])) {
+            $data['site_city'] = $property->cityRelation?->name_ar
+                ?: $property->cityRelation?->name_en
+                ?: $property->city;
+        }
+
+        if (empty($data['site_district'])) {
+            $data['site_district'] = $property->districtRelation?->name_ar
+                ?: $property->districtRelation?->name_en
+                ?: $property->district;
+        }
+
+        return $data;
+    }
+
     public function index(Request $request): JsonResponse
     {
         $query = Unit::with(['property.association', 'owners', 'components', 'privateParts']);
@@ -112,6 +143,7 @@ class UnitController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate($this->baseRules($request), self::arMessages());
+        $data = $this->fillLocationFromProperty($data);
         $unit = Unit::create($data);
         ActivityLog::record('unit', $unit->id, 'created', 'تم إنشاء وحدة جديدة');
 
@@ -148,6 +180,7 @@ class UnitController extends Controller
     {
         $unit = Unit::findOrFail($id);
         $data = $request->validate($this->baseRules($request, $id), self::arMessages());
+        $data = $this->fillLocationFromProperty($data);
         $unit->update($data);
 
         if ($request->has('components')) {
