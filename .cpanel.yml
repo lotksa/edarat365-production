@@ -26,6 +26,9 @@ deployment:
     - /bin/chmod 644 $LARAVEL_APP/.env 2>/dev/null || true
     - /bin/chmod 644 $LARAVEL_APP/.env.production 2>/dev/null || true
     - /bin/chmod 644 $LARAVEL_APP/.env.example 2>/dev/null || true
+    # Use database cache on cPanel to avoid file-cache ownership conflicts
+    # between SSH deploy commands and the PHP-FPM runtime user.
+    - if /bin/grep -q '^CACHE_STORE=' "$LARAVEL_APP/.env"; then /bin/sed -i 's/^CACHE_STORE=.*/CACHE_STORE=database/' "$LARAVEL_APP/.env"; else /usr/bin/printf '\nCACHE_STORE=database\n' >> "$LARAVEL_APP/.env"; fi
     # PHP-FPM on this cPanel host runs as 'nobody', not as the cPanel user, so
     # framework directories MUST be writable. The parent /home/USER is 711 (cPanel
     # default), preventing 'nobody' from listing siblings.
