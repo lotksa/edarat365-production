@@ -47,26 +47,47 @@ class DashboardController extends Controller
             'mixed'       => Property::where('type', 'mixed')->count(),
         ];
 
+        $unitStatuses = $this->statusCounts(Unit::class);
+        $unitMaintenance = $this->countStatuses($unitStatuses, ['maintenance', 'under_maintenance']);
         $units = [
             'total'             => Unit::count(),
-            'occupied'          => Unit::where('status', 'occupied')->count(),
-            'vacant'            => Unit::where('status', 'vacant')->count(),
-            'under_maintenance' => Unit::where('status', 'under_maintenance')->count(),
+            'active'            => $this->countStatuses($unitStatuses, 'active'),
+            'occupied'          => $this->countStatuses($unitStatuses, 'occupied'),
+            'vacant'            => $this->countStatuses($unitStatuses, 'vacant'),
+            'maintenance'       => $unitMaintenance,
+            'under_maintenance' => $unitMaintenance,
+            'reserved'          => $this->countStatuses($unitStatuses, 'reserved'),
+            'draft'             => $this->countStatuses($unitStatuses, 'draft'),
         ];
 
+        $invoiceStatuses = Invoice::query()
+            ->whereNull('cancelled_at')
+            ->where('status', '!=', 'cancelled')
+            ->select('status', \DB::raw('COUNT(*) as aggregate'))
+            ->groupBy('status')
+            ->pluck('aggregate', 'status');
         $invoices = [
-            'total'   => Invoice::count(),
-            'paid'    => Invoice::where('status', 'paid')->count(),
-            'pending' => Invoice::where('status', 'pending')->count(),
-            'overdue' => Invoice::where('status', 'overdue')->count(),
+            'total'     => Invoice::count(),
+            'paid'      => $this->countStatuses($invoiceStatuses, 'paid'),
+            'unpaid'    => $this->countStatuses($invoiceStatuses, 'unpaid'),
+            'pending'   => $this->countStatuses($invoiceStatuses, 'pending'),
+            'overdue'   => $this->countStatuses($invoiceStatuses, 'overdue'),
+            'partial'   => $this->countStatuses($invoiceStatuses, 'partial'),
+            'draft'     => $this->countStatuses($invoiceStatuses, 'draft'),
+            'cancelled' => Invoice::where('status', 'cancelled')->orWhereNotNull('cancelled_at')->count(),
         ];
 
+        $maintenanceStatuses = $this->statusCounts(MaintenanceRequest::class);
         $maintenance = [
             'total'       => MaintenanceRequest::count(),
-            'completed'   => MaintenanceRequest::where('status', 'completed')->count(),
-            'in_progress' => MaintenanceRequest::where('status', 'in_progress')->count(),
-            'pending'     => MaintenanceRequest::where('status', 'pending')->count(),
-            'overdue'     => MaintenanceRequest::where('status', 'overdue')->count(),
+            'open'        => $this->countStatuses($maintenanceStatuses, ['open', 'pending']),
+            'in_progress' => $this->countStatuses($maintenanceStatuses, 'in_progress'),
+            'on_hold'     => $this->countStatuses($maintenanceStatuses, 'on_hold'),
+            'completed'   => $this->countStatuses($maintenanceStatuses, 'completed'),
+            'closed'      => $this->countStatuses($maintenanceStatuses, 'closed'),
+            'cancelled'   => $this->countStatuses($maintenanceStatuses, 'cancelled'),
+            'pending'     => $this->countStatuses($maintenanceStatuses, 'pending'),
+            'overdue'     => $this->countStatuses($maintenanceStatuses, 'overdue'),
         ];
 
         $legalCases = [
@@ -119,5 +140,22 @@ class DashboardController extends Controller
                 'recent_invoices'     => $recentInvoices,
             ],
         ]);
+    }
+
+    private function statusCounts(string $modelClass): \Illuminate\Support\Collection
+    {
+        return $modelClass::query()
+            ->select('status', \DB::raw('COUNT(*) as aggregate'))
+            ->groupBy('status')
+            ->pluck('aggregate', 'status');
+    }
+
+    private function countStatuses(\Illuminate\Support\Collection $counts, string|array $statuses): int
+    {
+        $statuses = (array) $statuses;
+
+        return array_reduce($statuses, function (int $total, string $status) use ($counts): int {
+            return $total + (int) ($counts[$status] ?? 0);
+        }, 0);
     }
 }
