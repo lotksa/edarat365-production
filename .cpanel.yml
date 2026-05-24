@@ -36,7 +36,7 @@ deployment:
     # Make sure laravel.log exists and is writable by 'nobody'
     - /bin/mkdir -p $LARAVEL_APP/storage/logs
     - /bin/touch $LARAVEL_APP/storage/logs/laravel.log
-    - /bin/chmod 664 $LARAVEL_APP/storage/logs/laravel.log 2>/dev/null || /bin/chmod 666 $LARAVEL_APP/storage/logs/laravel.log
+    - /bin/chmod 666 $LARAVEL_APP/storage/logs/laravel.log 2>/dev/null || true
     # Ensure framework cache subdirectories are present so Laravel can stat() them
     - /bin/mkdir -p $LARAVEL_APP/storage/framework/cache/data
     - /bin/mkdir -p $LARAVEL_APP/storage/framework/sessions
