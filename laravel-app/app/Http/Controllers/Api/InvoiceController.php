@@ -58,7 +58,9 @@ class InvoiceController extends Controller
                   ->orWhereHas('property.owners', fn ($oq) => $oq->where('owners.id', $v));
             });
         }
-        if ($v = $request->query('unit_id'))          $query->where('unit_id', $v);
+        if ($v = $request->query('unit_id')) {
+            $this->applyUnitScope($query, (int) $v);
+        }
         if ($v = $request->query('tenant_id'))        $query->where('tenant_id', $v);
 
         $perPage = (int) $request->query('per_page', 15);
@@ -73,6 +75,24 @@ class InvoiceController extends Controller
                 'total'        => $records->total(),
             ],
         ]);
+    }
+
+    private function applyUnitScope($query, int $unitId): void
+    {
+        $unit = Unit::with(['owners', 'property'])->find($unitId);
+        $ownerIds = $unit?->owners?->pluck('id')->filter()->values() ?? collect();
+
+        $query->where(function ($scoped) use ($unitId, $unit, $ownerIds) {
+            $scoped->where('unit_id', $unitId);
+
+            if ($unit?->property_id && $ownerIds->isNotEmpty()) {
+                $scoped->orWhere(function ($ownerScoped) use ($unit, $ownerIds) {
+                    $ownerScoped->whereNull('unit_id')
+                        ->where('property_id', $unit->property_id)
+                        ->whereIn('owner_id', $ownerIds);
+                });
+            }
+        });
     }
 
     public function stats(): JsonResponse

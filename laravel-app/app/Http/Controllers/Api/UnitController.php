@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
+use App\Models\Invoice;
 use App\Models\Owner;
 use App\Models\Property;
 use App\Models\Setting;
@@ -161,6 +162,7 @@ class UnitController extends Controller
     {
         $unit = Unit::with(['property.association', 'owners', 'invoices', 'contracts', 'components', 'privateParts', 'images', 'maintenanceRequests'])->findOrFail($id);
         $data = $unit->toArray();
+        $data['invoices'] = $this->unitInvoices($unit);
         $data['association_logo'] = $unit->property?->association?->logo ?? null;
         $data['activity_logs'] = ActivityLog::where('subject_type', 'unit')
             ->where('subject_id', $id)
@@ -168,6 +170,27 @@ class UnitController extends Controller
             ->limit(50)
             ->get();
         return response()->json(['data' => $data]);
+    }
+
+    private function unitInvoices(Unit $unit)
+    {
+        $unit->loadMissing(['owners', 'property']);
+        $ownerIds = $unit->owners->pluck('id')->filter()->values();
+
+        return Invoice::with(['association', 'property', 'owner', 'unit', 'tenant'])
+            ->where(function ($query) use ($unit, $ownerIds) {
+                $query->where('unit_id', $unit->id);
+
+                if ($unit->property_id && $ownerIds->isNotEmpty()) {
+                    $query->orWhere(function ($ownerScoped) use ($unit, $ownerIds) {
+                        $ownerScoped->whereNull('unit_id')
+                            ->where('property_id', $unit->property_id)
+                            ->whereIn('owner_id', $ownerIds);
+                    });
+                }
+            })
+            ->latest('id')
+            ->get();
     }
 
     public function toggleStatus(int $id): JsonResponse
