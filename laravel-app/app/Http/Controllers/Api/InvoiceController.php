@@ -85,11 +85,20 @@ class InvoiceController extends Controller
         $query->where(function ($scoped) use ($unitId, $unit, $ownerIds) {
             $scoped->where('unit_id', $unitId);
 
-            if ($unit?->property_id && $ownerIds->isNotEmpty()) {
+            if ($ownerIds->isNotEmpty()) {
                 $scoped->orWhere(function ($ownerScoped) use ($unit, $ownerIds) {
-                    $ownerScoped->whereNull('unit_id')
-                        ->where('property_id', $unit->property_id)
-                        ->whereIn('owner_id', $ownerIds);
+                    $ownerScoped->whereIn('owner_id', $ownerIds)
+                        ->where(function ($unitScoped) use ($unit) {
+                            $unitScoped->whereNull('unit_id')
+                                ->orWhere('unit_id', $unit->id);
+                        })
+                        ->where(function ($propertyScoped) use ($unit) {
+                            $propertyScoped->whereNull('property_id');
+
+                            if ($unit->property_id) {
+                                $propertyScoped->orWhere('property_id', $unit->property_id);
+                            }
+                        });
                 });
             }
         });

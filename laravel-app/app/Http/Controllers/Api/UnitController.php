@@ -181,11 +181,20 @@ class UnitController extends Controller
             ->where(function ($query) use ($unit, $ownerIds) {
                 $query->where('unit_id', $unit->id);
 
-                if ($unit->property_id && $ownerIds->isNotEmpty()) {
+                if ($ownerIds->isNotEmpty()) {
                     $query->orWhere(function ($ownerScoped) use ($unit, $ownerIds) {
-                        $ownerScoped->whereNull('unit_id')
-                            ->where('property_id', $unit->property_id)
-                            ->whereIn('owner_id', $ownerIds);
+                        $ownerScoped->whereIn('owner_id', $ownerIds)
+                            ->where(function ($unitScoped) use ($unit) {
+                                $unitScoped->whereNull('unit_id')
+                                    ->orWhere('unit_id', $unit->id);
+                            })
+                            ->where(function ($propertyScoped) use ($unit) {
+                                $propertyScoped->whereNull('property_id');
+
+                                if ($unit->property_id) {
+                                    $propertyScoped->orWhere('property_id', $unit->property_id);
+                                }
+                            });
                     });
                 }
             })
