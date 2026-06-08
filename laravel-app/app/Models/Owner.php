@@ -100,6 +100,11 @@ class Owner extends Model
         return $this->hasMany(Contract::class);
     }
 
+    public function legalCases(): HasMany
+    {
+        return $this->hasMany(LegalCase::class);
+    }
+
     public function maintenanceRequests(): HasMany
     {
         return $this->hasMany(MaintenanceRequest::class);

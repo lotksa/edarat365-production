@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\ApprovalRequest;
+use App\Models\Association;
 use App\Models\PropertyComponent;
 use App\Models\Contract;
 use App\Models\Facility;
+use App\Models\Invoice;
 use App\Models\LegalCase;
 use App\Models\MaintenanceRequest;
 use App\Models\Meeting;
@@ -72,6 +74,82 @@ class PropertyController extends Controller
         ]);
     }
 
+    private function isBlank(mixed $value): bool
+    {
+        return $value === null || $value === '';
+    }
+
+    private function shouldApplyAssociationDefault(array $data, string $field, ?Property $property): bool
+    {
+        if (array_key_exists($field, $data)) {
+            return $this->isBlank($data[$field]);
+        }
+
+        return $property ? $this->isBlank($property->{$field}) : true;
+    }
+
+    private function associationAddressText(Association $association): ?string
+    {
+        if ($association->address_type === 'short' && $association->address_short_code) {
+            return $association->address_short_code;
+        }
+
+        $parts = [
+            $association->address_region,
+            $association->address_city_name,
+            $association->address_district,
+            $association->address_street,
+            $association->address_building_no,
+            $association->address_additional_no,
+            $association->address_postal_code,
+            $association->address_unit_no,
+        ];
+
+        $text = implode('، ', array_filter($parts, fn ($part) => !$this->isBlank($part)));
+
+        return $text !== '' ? $text : null;
+    }
+
+    private function applyAssociationAddressDefaults(array $data, ?Property $property = null): array
+    {
+        $associationId = $data['association_id'] ?? $property?->association_id;
+        if (!$associationId) {
+            return $data;
+        }
+
+        $association = Association::with(['city', 'district'])->find($associationId);
+        if (!$association || !$association->has_national_address) {
+            return $data;
+        }
+
+        if ($association->city_id && $this->shouldApplyAssociationDefault($data, 'city_id', $property)) {
+            $data['city_id'] = $association->city_id;
+        }
+
+        if ($association->district_id && $this->shouldApplyAssociationDefault($data, 'district_id', $property)) {
+            $data['district_id'] = $association->district_id;
+        }
+
+        $cityName = $association->address_city_name ?: ($association->city?->name_ar ?: $association->city?->name_en);
+        if ($cityName && $this->shouldApplyAssociationDefault($data, 'city', $property)) {
+            $data['city'] = $cityName;
+        }
+
+        $districtName = $association->address_district ?: ($association->district?->name_ar ?: $association->district?->name_en);
+        if ($districtName && $this->shouldApplyAssociationDefault($data, 'district', $property)) {
+            $data['district'] = $districtName;
+        }
+
+        if ($this->shouldApplyAssociationDefault($data, 'address', $property)) {
+            $address = $this->associationAddressText($association);
+            if ($address) {
+                $data['address'] = $address;
+            }
+        }
+
+        return $data;
+    }
+
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -108,6 +186,8 @@ class PropertyController extends Controller
             $data['build_date'] = null;
         }
 
+        $data = $this->applyAssociationAddressDefaults($data);
+
         $property = Property::create($data);
         ActivityLog::record('property', $property->id, 'created', 'تم إنشاء عقار جديد');
 
@@ -124,7 +204,19 @@ class PropertyController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $property = Property::with(['association', 'units', 'propertyManager', 'utilityMeters', 'documents', 'cityRelation', 'districtRelation', 'components'])->findOrFail($id);
+        $property = Property::with([
+            'association',
+            'units',
+            'propertyManager',
+            'utilityMeters',
+            'documents',
+            'cityRelation',
+            'districtRelation',
+            'components',
+            'invoices.owner',
+            'invoices.unit',
+        ])->findOrFail($id);
+        $property->setRelation('invoices', $this->propertyInvoicesQuery($id)->get());
 
         return response()->json(['data' => $property]);
     }
@@ -166,6 +258,8 @@ class PropertyController extends Controller
         } else {
             $data['build_date'] = null;
         }
+
+        $data = $this->applyAssociationAddressDefaults($data, $property);
 
         $property->update($data);
         ActivityLog::record('property', $id, 'updated', 'تم تحديث بيانات العقار');
@@ -407,6 +501,24 @@ class PropertyController extends Controller
     {
         $property = Property::findOrFail($id);
         return response()->json(['data' => $property->contracts()->with(['unit', 'owner'])->latest('id')->get()]);
+    }
+
+    public function relatedInvoices(int $id): JsonResponse
+    {
+        Property::findOrFail($id);
+        return response()->json([
+            'data' => $this->propertyInvoicesQuery($id)->get(),
+        ]);
+    }
+
+    private function propertyInvoicesQuery(int $propertyId)
+    {
+        return Invoice::with(['owner', 'unit'])
+            ->where(function ($q) use ($propertyId) {
+                $q->where('property_id', $propertyId)
+                  ->orWhereHas('unit', fn ($uq) => $uq->where('property_id', $propertyId));
+            })
+            ->latest('id');
     }
 
     public function relatedMeetings(int $id): JsonResponse

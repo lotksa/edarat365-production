@@ -25,7 +25,11 @@ class InvoicePdfController extends Controller
         $totalWithVat = (float) ($invoice->total_amount ?? 0);
         $vatAmount = (float) ($invoice->tax_amount ?? 0);
 
-        $zatcaQr = $this->generateZatcaQr($sellerName, $vatNumber, $invoiceDate, $totalWithVat, $vatAmount);
+        $vatEnabled = filter_var($tax['vat_enabled'] ?? true, FILTER_VALIDATE_BOOLEAN);
+        $zatcaEnabled = $vatEnabled && filter_var($tax['zatca_enabled'] ?? true, FILTER_VALIDATE_BOOLEAN);
+        $zatcaQr = $zatcaEnabled
+            ? $this->generateZatcaQr($sellerName, $vatNumber, $invoiceDate, $totalWithVat, $vatAmount)
+            : '';
 
         $lineItems = is_array($invoice->line_items) ? $invoice->line_items : [];
 
@@ -63,9 +67,9 @@ class InvoicePdfController extends Controller
                 'logo'          => $brandSettings['sidebar_logo_light'] ?? ($generalSettings['site_logo'] ?? '/brand/logo.png'),
             ],
             'tax' => [
-                'vat_enabled'      => $tax['vat_enabled'] ?? true,
+                'vat_enabled'      => $vatEnabled,
                 'vat_rate'         => (float) ($tax['vat_rate'] ?? 15),
-                'zatca_enabled'    => $tax['zatca_enabled'] ?? true,
+                'zatca_enabled'    => $zatcaEnabled,
                 'zatca_phase'      => $tax['zatca_phase'] ?? '2',
                 'legal_text_ar'    => $tax['zatca_legal_text_ar'] ?? '',
                 'legal_text_en'    => $tax['zatca_legal_text_en'] ?? '',

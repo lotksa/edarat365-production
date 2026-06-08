@@ -52,6 +52,11 @@ class Property extends Model
             ->withTimestamps();
     }
 
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
+    }
+
     public function propertyManager(): BelongsTo
     {
         return $this->belongsTo(PropertyManager::class);

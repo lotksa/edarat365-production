@@ -231,6 +231,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/properties/{id}/related/facilities', [PropertyController::class, 'relatedFacilities']);
             Route::get('/properties/{id}/related/maintenance', [PropertyController::class, 'relatedMaintenance']);
             Route::get('/properties/{id}/related/contracts', [PropertyController::class, 'relatedContracts']);
+            Route::get('/properties/{id}/related/invoices', [PropertyController::class, 'relatedInvoices']);
             Route::get('/properties/{id}/related/meetings', [PropertyController::class, 'relatedMeetings']);
             Route::get('/properties/{id}/related/legal-cases', [PropertyController::class, 'relatedLegalCases']);
             Route::get('/properties/{id}/related/approvals', [PropertyController::class, 'relatedApprovals']);

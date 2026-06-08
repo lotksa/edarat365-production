@@ -27,7 +27,7 @@ class Invoice extends Model
         'total_amount'    => 'decimal:2',
         'due_date'        => 'date',
         'issue_date'      => 'date',
-        'payment_date'    => 'date',
+        'payment_date'    => 'datetime',
         'line_items'      => 'array',
         'issued_at'       => 'datetime',
         'cancelled_at'    => 'datetime',

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
+use App\Models\Invoice;
 use App\Models\Owner;
 use App\Models\Setting;
 use App\Services\Notifier;
@@ -181,7 +182,8 @@ class OwnerController extends Controller
             'units.property', 'units.images',
             'invoices', 'contracts', 'maintenanceRequests', 'bookings',
             'vehicles.parkingSpot', 'transactions', 'vouchers',
-            'voteResponses.vote',
+            'voteResponses.vote', 'legalCases.association', 'legalCases.property',
+            'legalCases.unit', 'legalCases.updates.creator',
         ])->findOrFail($id);
 
         $data = $owner->toArray();
@@ -209,7 +211,15 @@ class OwnerController extends Controller
             'national_address_required' => false,
         ]);
 
-        $invoices = $owner->invoices;
+        $invoices = Invoice::with(['property', 'unit'])
+            ->where(function ($q) use ($id) {
+                $q->where('owner_id', $id)
+                  ->orWhereHas('unit.owners', fn ($oq) => $oq->where('owners.id', $id))
+                  ->orWhereHas('property.owners', fn ($oq) => $oq->where('owners.id', $id));
+            })
+            ->latest('id')
+            ->get();
+        $data['invoices'] = $invoices;
         $vouchers = $owner->vouchers;
         $transactions = $owner->transactions;
         $vehicles = $owner->vehicles;
@@ -220,6 +230,12 @@ class OwnerController extends Controller
 
         $bookings = $owner->bookings()->with('facility')->get();
         $data['bookings'] = $bookings;
+
+        $legalCases = $owner->legalCases()
+            ->with(['association', 'property', 'unit', 'updates.creator'])
+            ->latest('id')
+            ->get();
+        $data['legal_cases'] = $legalCases;
 
         $data['stats'] = [
             'vehicles' => [
@@ -247,6 +263,12 @@ class OwnerController extends Controller
                 'total' => $contracts->count(),
                 'active' => $contracts->where('status', 'active')->count(),
                 'expired' => $contracts->where('status', 'expired')->count(),
+            ],
+            'legal_cases' => [
+                'total' => $legalCases->count(),
+                'open' => $legalCases->whereIn('status', ['open', 'pending', 'in_progress'])->count(),
+                'closed' => $legalCases->where('status', 'closed')->count(),
+                'suspended' => $legalCases->where('status', 'suspended')->count(),
             ],
             'meetings' => [
                 'total' => $meetings->count(),
@@ -315,7 +337,7 @@ class OwnerController extends Controller
 
     public function destroy(int $id): JsonResponse
     {
-        $owner = Owner::with(['units', 'invoices', 'contracts'])->findOrFail($id);
+        $owner = Owner::with(['units', 'invoices', 'contracts', 'legalCases'])->findOrFail($id);
 
         $ownerSettings = Setting::getByKey('owner_settings', []);
         $protectionEnabled = $ownerSettings['delete_protection'] ?? true;
@@ -325,6 +347,7 @@ class OwnerController extends Controller
             if ($owner->units->count() > 0)     $linked[] = 'وحدات عقارية';
             if ($owner->invoices->count() > 0)   $linked[] = 'فواتير';
             if ($owner->contracts->count() > 0)  $linked[] = 'عقود';
+            if ($owner->legalCases->count() > 0) $linked[] = 'قضايا';
 
             if (!empty($linked)) {
                 return response()->json([
@@ -375,8 +398,8 @@ class OwnerController extends Controller
 
         $blocked = [];
         $deleted = 0;
-        foreach (Owner::with(['units', 'invoices', 'contracts'])->whereIn('id', $data['ids'])->get() as $owner) {
-            if ($owner->units->count() > 0 || $owner->invoices->count() > 0 || $owner->contracts->count() > 0) {
+        foreach (Owner::with(['units', 'invoices', 'contracts', 'legalCases'])->whereIn('id', $data['ids'])->get() as $owner) {
+            if ($owner->units->count() > 0 || $owner->invoices->count() > 0 || $owner->contracts->count() > 0 || $owner->legalCases->count() > 0) {
                 $blocked[] = $owner->full_name;
                 continue;
             }

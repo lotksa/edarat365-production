@@ -5,6 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Invoice;
+use App\Models\Property;
+use App\Models\Setting;
+use App\Models\Unit;
 use App\Services\Notifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,6 +20,7 @@ class InvoiceController extends Controller
      * deleted. Anything else is treated as ISSUED for ZATCA purposes.
      */
     private const DRAFT_STATUSES = ['draft'];
+    private const PAYMENT_UPDATE_FIELDS = ['status', 'payment_date', 'payment_method'];
 
     public function index(Request $request): JsonResponse
     {
@@ -32,9 +36,28 @@ class InvoiceController extends Controller
 
         if ($v = $request->query('status'))           $query->where('status', $v);
         if ($v = $request->query('invoice_type'))     $query->where('invoice_type', $v);
-        if ($v = $request->query('association_id'))   $query->where('association_id', $v);
-        if ($v = $request->query('property_id'))      $query->where('property_id', $v);
-        if ($v = $request->query('owner_id'))         $query->where('owner_id', $v);
+        if ($v = $request->query('association_id')) {
+            $query->where(function ($q) use ($v) {
+                $q->where('association_id', $v)
+                  ->orWhereHas('property', fn ($pq) => $pq->where('association_id', $v))
+                  ->orWhereHas('unit.property', fn ($pq) => $pq->where('association_id', $v));
+            });
+        }
+        if ($v = $request->query('property_id')) {
+            $query->where(function ($q) use ($v) {
+                $q->where('property_id', $v)
+                  ->orWhereHas('unit', fn ($uq) => $uq->where('property_id', $v));
+            });
+        }
+        if ($v = $request->query('owner_id')) {
+            $query->where(function ($q) use ($v) {
+                $q->where('owner_id', $v)
+                  ->orWhereHas('unit.owners', fn ($oq) => $oq->where('owners.id', $v))
+                  ->orWhereHas('property.owners', fn ($oq) => $oq->where('owners.id', $v));
+            });
+        }
+        if ($v = $request->query('unit_id'))          $query->where('unit_id', $v);
+        if ($v = $request->query('tenant_id'))        $query->where('tenant_id', $v);
 
         $perPage = (int) $request->query('per_page', 15);
         $records = $query->latest('id')->paginate($perPage);
@@ -54,7 +77,7 @@ class InvoiceController extends Controller
     {
         return response()->json([
             'total'     => Invoice::count(),
-            'pending'   => Invoice::where('status', 'pending')->count(),
+            'pending'   => Invoice::whereIn('status', ['pending', 'unpaid'])->count(),
             'paid'      => Invoice::where('status', 'paid')->count(),
             'overdue'   => Invoice::where('status', 'overdue')->count(),
             'partial'   => Invoice::where('status', 'partial')->count(),
@@ -76,10 +99,12 @@ class InvoiceController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $this->validateInvoicePayload($request);
+        $this->normalizeInvoiceScope($data);
 
         // Default status: 'unpaid' unless caller explicitly sent 'draft'.
         $data['status'] = $data['status'] ?? 'unpaid';
         $data['issue_date'] = $data['issue_date'] ?? now()->toDateString();
+        $this->normalizePaymentState($data);
 
         // ZATCA: anything that is not a draft is considered ISSUED, so we
         // capture the issuance moment to seal the audit trail.
@@ -123,10 +148,18 @@ class InvoiceController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $invoice = Invoice::findOrFail($id);
+        $data = $this->validateInvoicePayload($request);
 
         // ZATCA: only DRAFT invoices may be edited. After issuance, the
-        // legal flow is cancel + reissue, never in-place modification.
+        // legal flow is cancel + reissue, never in-place content changes.
+        // Payment status is operational metadata, so a narrow update is
+        // allowed for marking an issued invoice paid/unpaid without touching
+        // any legal invoice content.
         if ($invoice->is_locked) {
+            if ($this->isPaymentOnlyUpdate($request) && !$invoice->cancelled_at && $invoice->status !== 'cancelled') {
+                return $this->updatePaymentOnly($invoice, $data);
+            }
+
             return response()->json([
                 'message' => 'لا يمكن تعديل فاتورة مُصدرة أو ملغاة. يجب إلغاء الفاتورة الحالية وإصدار فاتورة جديدة.',
                 'reason'  => 'zatca_locked',
@@ -134,10 +167,11 @@ class InvoiceController extends Controller
             ], 422);
         }
 
-        $data = $this->validateInvoicePayload($request);
+        $this->normalizeInvoiceScope($data, $invoice);
 
         $oldStatus = $invoice->status;
         $newStatus = $data['status'] ?? $oldStatus;
+        $this->normalizePaymentState($data, $invoice);
 
         // If transitioning OUT of draft into an issued status, capture the
         // issuance moment exactly once.
@@ -344,11 +378,166 @@ class InvoiceController extends Controller
 
     private function recalculateTotals(array &$data, ?Invoice $existing = null): void
     {
-        $subtotal = (float) ($data['amount'] ?? $existing->amount ?? 0);
-        $vatRate  = (float) ($data['vat_rate'] ?? $existing->vat_rate ?? 0);
+        $subtotal = $this->lineItemsSubtotal($data['line_items'] ?? null);
+        if ($subtotal === null) {
+            $subtotal = (float) ($data['amount'] ?? $existing->amount ?? 0);
+        }
+
+        $tax = $this->invoiceTaxSettings();
+        $vatRate = $tax['vat_enabled']
+            ? (float) ($data['vat_rate'] ?? $existing->vat_rate ?? $tax['vat_rate'])
+            : 0.0;
         $discount = (float) ($data['discount_amount'] ?? $existing->discount_amount ?? 0);
         $taxAmt = $subtotal * ($vatRate / 100);
+        $data['amount']       = round($subtotal, 2);
+        $data['vat_rate']     = round($vatRate, 2);
         $data['tax_amount']   = round($taxAmt, 2);
-        $data['total_amount'] = $data['total_amount'] ?? round($subtotal + $taxAmt - $discount, 2);
+        $data['total_amount'] = max(0, round($subtotal + $taxAmt - $discount, 2));
+    }
+
+    private function lineItemsSubtotal(mixed $lineItems): ?float
+    {
+        if (!is_array($lineItems)) {
+            return null;
+        }
+
+        $subtotal = 0.0;
+        foreach ($lineItems as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            if (array_key_exists('total_price', $row)) {
+                $subtotal += (float) $row['total_price'];
+                continue;
+            }
+            $subtotal += ((float) ($row['quantity'] ?? 0)) * ((float) ($row['unit_price'] ?? 0));
+        }
+
+        return round($subtotal, 2);
+    }
+
+    private function invoiceTaxSettings(): array
+    {
+        $settings = Setting::getByKey('invoice_settings', []);
+        $tax = $settings['tax'] ?? [];
+
+        return [
+            'vat_enabled' => filter_var($tax['vat_enabled'] ?? true, FILTER_VALIDATE_BOOLEAN),
+            'vat_rate'    => (float) ($tax['vat_rate'] ?? 15),
+        ];
+    }
+
+    private function normalizeInvoiceScope(array &$data, ?Invoice $existing = null): void
+    {
+        $unitId = $data['unit_id'] ?? $existing?->unit_id;
+        $unit = $unitId ? Unit::with(['property.owners', 'owners'])->find($unitId) : null;
+
+        if ($unit) {
+            $data['property_id'] = $unit->property_id ?: ($data['property_id'] ?? $existing?->property_id);
+            if ($unit->property?->association_id) {
+                $data['association_id'] = $unit->property->association_id;
+            }
+            if (empty($data['owner_id'])) {
+                $unitOwners = $unit->owners;
+                if ($unitOwners->count() === 1) {
+                    $data['owner_id'] = $unitOwners->first()->id;
+                } elseif ($unit->getAttribute('owner_id')) {
+                    $data['owner_id'] = $unit->getAttribute('owner_id');
+                }
+            }
+        }
+
+        $propertyId = $data['property_id'] ?? $existing?->property_id;
+        $property = $propertyId ? Property::with('owners')->find($propertyId) : null;
+
+        if ($property) {
+            if ($property->association_id) {
+                $data['association_id'] = $property->association_id;
+            }
+            if (empty($data['owner_id'])) {
+                $propertyOwners = $property->owners;
+                if ($propertyOwners->count() === 1) {
+                    $data['owner_id'] = $propertyOwners->first()->id;
+                }
+            }
+        }
+    }
+
+    private function isPaymentOnlyUpdate(Request $request): bool
+    {
+        $keys = array_keys($request->all());
+        if (!$keys) {
+            return false;
+        }
+
+        return count(array_diff($keys, self::PAYMENT_UPDATE_FIELDS)) === 0;
+    }
+
+    private function updatePaymentOnly(Invoice $invoice, array $data): JsonResponse
+    {
+        $oldStatus = $invoice->status;
+        $status = $data['status'] ?? $oldStatus;
+
+        if (in_array($status, self::DRAFT_STATUSES, true) || $status === 'cancelled') {
+            return response()->json([
+                'message' => 'حالة السداد غير صحيحة لهذه الفاتورة.',
+            ], 422);
+        }
+
+        $updates = [];
+        if (array_key_exists('status', $data)) {
+            $updates['status'] = $status;
+        }
+        if (array_key_exists('payment_date', $data)) {
+            $updates['payment_date'] = $data['payment_date'];
+        }
+        if (array_key_exists('payment_method', $data)) {
+            $updates['payment_method'] = $data['payment_method'];
+        }
+
+        $this->normalizePaymentState($updates, $invoice);
+        $invoice->update($updates);
+
+        ActivityLog::record('invoice', $invoice->id, 'payment_status_updated',
+            'تم تحديث حالة سداد الفاتورة — ' . $invoice->invoice_number,
+            ['status' => $oldStatus],
+            ['status' => $invoice->fresh()->status, 'payment_date' => $invoice->fresh()->payment_date]
+        );
+
+        if (($updates['status'] ?? $oldStatus) !== $oldStatus && ($updates['status'] ?? null) === 'paid') {
+            Notifier::dispatch('invoice.paid', [
+                'subject'  => $invoice,
+                'owner_id' => $invoice->owner_id,
+                'data'     => [
+                    'number' => $invoice->invoice_number,
+                    'amount' => number_format((float) $invoice->total_amount, 2),
+                    'status' => 'paid',
+                ],
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'تم تحديث حالة السداد بنجاح',
+            'data'    => $invoice->fresh()->load(['association', 'property', 'owner', 'unit', 'tenant']),
+        ]);
+    }
+
+    private function normalizePaymentState(array &$data, ?Invoice $existing = null): void
+    {
+        $status = $data['status'] ?? $existing?->status;
+
+        if ($status === 'paid') {
+            $paymentDate = $data['payment_date'] ?? $existing?->payment_date;
+            if (empty($paymentDate)) {
+                $data['payment_date'] = now();
+            } elseif (is_string($paymentDate) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $paymentDate)) {
+                $data['payment_date'] = $paymentDate . ' ' . now()->format('H:i:s');
+            }
+            return;
+        }
+
+        if (array_key_exists('status', $data)) {
+            $data['payment_date'] = null;
+        }
     }
 }

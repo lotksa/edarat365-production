@@ -65,8 +65,23 @@ class AssociationController extends Controller
         }
     }
 
-    private function validationRules(Request $request, bool $isUpdate = false): array
+    private function nationalAddressRequired(Request $request, ?Association $association = null): bool
     {
+        $status = $request->input('status', $association?->status ?? 'active');
+
+        return $status !== 'draft';
+    }
+
+    private function validationRules(Request $request, bool $isUpdate = false, ?Association $association = null): array
+    {
+        $nationalAddressRequired = $this->nationalAddressRequired($request, $association);
+        $addressType = $request->input('address_type', $association?->address_type ?? 'full');
+        $hasNationalAddressRules = $nationalAddressRequired
+            ? ['required', 'accepted']
+            : ['nullable', 'boolean'];
+        $fullAddressRequired = $nationalAddressRequired && $addressType !== 'short';
+        $shortAddressRequired = $nationalAddressRequired && $addressType === 'short';
+
         return [
             'name'                => [$isUpdate ? 'sometimes' : ($request->input('status') === 'draft' ? 'nullable' : 'required'), 'string', 'max:255'],
             'name_en'             => ['nullable', 'string', 'max:255'],
@@ -91,16 +106,16 @@ class AssociationController extends Controller
             'has_commission'      => ['nullable', 'boolean'],
             'commission_type'     => ['nullable', 'string', 'in:fixed,percentage'],
             'commission_value'    => ['nullable', 'numeric', 'min:0'],
-            'has_national_address' => ['nullable', 'boolean'],
-            'address_type'        => ['nullable', 'string', 'in:full,short'],
-            'address_short_code'  => ['nullable', 'string', 'max:255'],
-            'address_region'      => ['nullable', 'string', 'max:255'],
-            'address_city_name'   => ['nullable', 'string', 'max:255'],
-            'address_district'    => ['nullable', 'string', 'max:255'],
-            'address_street'      => ['nullable', 'string', 'max:255'],
-            'address_building_no' => ['nullable', 'string', 'max:50'],
+            'has_national_address' => $hasNationalAddressRules,
+            'address_type'        => [$nationalAddressRequired ? 'required' : 'nullable', 'string', 'in:full,short'],
+            'address_short_code'  => [$shortAddressRequired ? 'required' : 'nullable', 'string', 'max:255'],
+            'address_region'      => [$fullAddressRequired ? 'required' : 'nullable', 'string', 'max:255'],
+            'address_city_name'   => [$fullAddressRequired ? 'required' : 'nullable', 'string', 'max:255'],
+            'address_district'    => [$fullAddressRequired ? 'required' : 'nullable', 'string', 'max:255'],
+            'address_street'      => [$fullAddressRequired ? 'required' : 'nullable', 'string', 'max:255'],
+            'address_building_no' => [$fullAddressRequired ? 'required' : 'nullable', 'string', 'max:50'],
             'address_additional_no' => ['nullable', 'string', 'max:50'],
-            'address_postal_code' => ['nullable', 'string', 'max:10'],
+            'address_postal_code' => [$fullAddressRequired ? 'required' : 'nullable', 'string', 'max:10'],
             'address_unit_no'     => ['nullable', 'string', 'max:50'],
         ];
     }
@@ -123,6 +138,16 @@ class AssociationController extends Controller
             'commission_value.min'   => 'قيمة العمولة يجب أن تكون أكبر من أو يساوي صفر',
             'latitude.numeric'       => 'خط العرض يجب أن يكون رقماً',
             'longitude.numeric'      => 'خط الطول يجب أن يكون رقماً',
+            'has_national_address.required' => 'العنوان الوطني إلزامي عند إنشاء أو تفعيل الجمعية',
+            'has_national_address.accepted' => 'العنوان الوطني إلزامي عند إنشاء أو تفعيل الجمعية',
+            'address_type.required'   => 'نوع العنوان الوطني مطلوب',
+            'address_short_code.required' => 'رمز العنوان المختصر مطلوب',
+            'address_region.required' => 'المنطقة مطلوبة في العنوان الوطني',
+            'address_city_name.required' => 'المدينة مطلوبة في العنوان الوطني',
+            'address_district.required' => 'الحي مطلوب في العنوان الوطني',
+            'address_street.required' => 'الشارع مطلوب في العنوان الوطني',
+            'address_building_no.required' => 'رقم المبنى مطلوب في العنوان الوطني',
+            'address_postal_code.required' => 'الرمز البريدي مطلوب في العنوان الوطني',
         ];
     }
 
@@ -193,8 +218,17 @@ class AssociationController extends Controller
               ->orWhereHas('unit', fn($q2) => $q2->whereHas('property', fn($q3) => $q3->where('association_id', $id)));
         })->with(['owner', 'unit'])->orderByDesc('id')->limit(50)->get();
 
-        $legalCases = \App\Models\LegalCase::where('association_id', $id)
-            ->orderByDesc('id')->limit(50)->get();
+        $legalCases = \App\Models\LegalCase::with(['owner', 'property', 'unit'])
+            ->where('association_id', $id)
+            ->orderByDesc('id')
+            ->limit(50)
+            ->get()
+            ->map(function ($case) {
+                $arr = $case->toArray();
+                $arr['owner_name'] = $case->owner?->full_name ?? '-';
+                $arr['property_name'] = $case->property?->name ?? '-';
+                return $arr;
+            });
         $data['legal_cases'] = $legalCases;
 
         $data['stats'] = [
@@ -234,7 +268,7 @@ class AssociationController extends Controller
     {
         $association = Association::findOrFail($id);
         $this->castBooleans($request);
-        $data = $request->validate($this->validationRules($request, true), self::arMessages());
+        $data = $request->validate($this->validationRules($request, true, $association), self::arMessages());
 
         if (empty($data['has_national_address'])) {
             $addressFields = ['address_type','address_short_code','address_region','address_city_name','address_district','address_street','address_building_no','address_additional_no','address_postal_code','address_unit_no'];

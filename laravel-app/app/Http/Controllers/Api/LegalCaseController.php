@@ -31,6 +31,8 @@ class LegalCaseController extends Controller
         if ($v = $request->query('priority'))         $query->where('priority', $v);
         if ($v = $request->query('association_id'))    $query->where('association_id', $v);
         if ($v = $request->query('property_id'))       $query->where('property_id', $v);
+        if ($v = $request->query('owner_id'))          $query->where('owner_id', $v);
+        if ($v = $request->query('unit_id'))           $query->where('unit_id', $v);
 
         $perPage = (int) $request->query('per_page', 15);
         $records = $query->latest('id')->paginate($perPage);
