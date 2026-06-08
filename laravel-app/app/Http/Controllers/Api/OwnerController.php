@@ -37,6 +37,13 @@ class OwnerController extends Controller
             $query->where('status', $status);
         }
 
+        if ($associationId = $request->query('association_id')) {
+            $query->where(function ($q) use ($associationId) {
+                $q->whereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
+                  ->orWhereHas('units.property', fn ($uq) => $uq->where('association_id', $associationId));
+            });
+        }
+
         $perPage = (int) $request->query('per_page', 15);
         $records = $query->latest('id')->paginate($perPage);
 

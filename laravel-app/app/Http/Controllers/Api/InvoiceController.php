@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Invoice;
+use App\Models\Owner;
 use App\Models\Property;
 use App\Models\Setting;
 use App\Models\Unit;
@@ -12,6 +13,7 @@ use App\Services\Notifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class InvoiceController extends Controller
 {
@@ -100,6 +102,7 @@ class InvoiceController extends Controller
     {
         $data = $this->validateInvoicePayload($request);
         $this->normalizeInvoiceScope($data);
+        $this->assertOwnerBelongsToInvoiceAssociation($data);
 
         // Default status: 'unpaid' unless caller explicitly sent 'draft'.
         $data['status'] = $data['status'] ?? 'unpaid';
@@ -168,6 +171,7 @@ class InvoiceController extends Controller
         }
 
         $this->normalizeInvoiceScope($data, $invoice);
+        $this->assertOwnerBelongsToInvoiceAssociation($data);
 
         $oldStatus = $invoice->status;
         $newStatus = $data['status'] ?? $oldStatus;
@@ -460,6 +464,30 @@ class InvoiceController extends Controller
                     $data['owner_id'] = $propertyOwners->first()->id;
                 }
             }
+        }
+    }
+
+    private function assertOwnerBelongsToInvoiceAssociation(array $data): void
+    {
+        $associationId = $data['association_id'] ?? null;
+        $ownerId = $data['owner_id'] ?? null;
+
+        if (!$associationId || !$ownerId) {
+            return;
+        }
+
+        $belongs = Owner::query()
+            ->whereKey($ownerId)
+            ->where(function ($q) use ($associationId) {
+                $q->whereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
+                  ->orWhereHas('units.property', fn ($uq) => $uq->where('association_id', $associationId));
+            })
+            ->exists();
+
+        if (!$belongs) {
+            throw ValidationException::withMessages([
+                'owner_id' => ['المالك المحدد غير مسجل ضمن هذه الجمعية.'],
+            ]);
         }
     }
 
