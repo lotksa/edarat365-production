@@ -55,6 +55,13 @@ This rule applies to all of:
   **without `robocopy /MIR`** unless the destructive nature is
   acknowledged and server-only files (`api/`, `.htaccess`) are restored
   from `git checkout` immediately after.
+- Production frontend bundles MUST use the production API base
+  (`/api/v1` on the same domain). It is forbidden to deploy any
+  `frontend/dist/` or `deploy-package/public_html/assets/` bundle that
+  calls `localhost`, `127.0.0.1`, or a local development port such as
+  `18001`, `18080`, or `8000`. Before pushing or deploying production
+  frontend assets, run a built-asset search for those local API targets;
+  if any are found, stop and rebuild with the production environment.
 - `.env` files are NEVER committed. The cPanel deploy preserves the
   server's `.env` via the `.deploy_backup` mechanism in `.cpanel.yml`.
 
@@ -144,7 +151,10 @@ Every deployment must end with at least:
 2. The live `index.html` references the new asset hashes.
 3. The live JS bundle byte-count matches the local `deploy-package`
    build (signals the bundle wasn't truncated by Cloudflare or cache).
-4. A smoke test of the modified feature on the live site.
+4. The live JS bundle does not call local API targets (`localhost`,
+   `127.0.0.1`, `18001`, `18080`, `8000`) and API requests resolve to
+   the production same-origin `/api/v1` path.
+5. A smoke test of the modified feature on the live site.
 
 ---
 
