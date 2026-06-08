@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
+use App\Models\Owner;
 use App\Models\Property;
 use App\Models\Setting;
 use App\Models\Unit;
@@ -109,6 +110,9 @@ class UnitController extends Controller
 
         if ($status = $request->query('status'))     $query->where('status', $status);
         if ($unitType = $request->query('unit_type')) $query->where('unit_type', $unitType);
+        if ($associationId = $request->query('association_id')) {
+            $query->whereHas('property', fn ($q) => $q->where('association_id', $associationId));
+        }
         if ($propertyId = $request->query('property_id')) $query->where('property_id', $propertyId);
         if ($ownerId = $request->query('owner_id')) {
             $query->whereHas('owners', fn ($q) => $q->where('owners.id', $ownerId));
@@ -447,7 +451,7 @@ class UnitController extends Controller
 
     public function syncOwners(Request $request, int $unitId): JsonResponse
     {
-        $unit = Unit::findOrFail($unitId);
+        $unit = Unit::with('property')->findOrFail($unitId);
 
         $data = $request->validate([
             'owners'                     => ['present', 'array'],
@@ -474,6 +478,22 @@ class UnitController extends Controller
                 return response()->json([
                     'message' => 'لا يمكن إضافة نفس المالك أكثر من مرة',
                 ], 422);
+            }
+
+            if ($unit->property?->association_id) {
+                $associationId = $unit->property->association_id;
+                $validCount = Owner::whereIn('id', $ownerIds)
+                    ->where(function ($q) use ($associationId) {
+                        $q->whereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
+                          ->orWhereHas('units.property', fn ($uq) => $uq->where('association_id', $associationId));
+                    })
+                    ->count();
+
+                if ($validCount !== count(array_unique($ownerIds))) {
+                    return response()->json([
+                        'message' => 'يوجد مالك خارج نطاق جمعية العقار المحدد',
+                    ], 422);
+                }
             }
         }
 

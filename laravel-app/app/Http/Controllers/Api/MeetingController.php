@@ -6,11 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Meeting;
 use App\Models\Owner;
+use App\Models\Property;
 use App\Models\Resolution;
 use App\Services\Notifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class MeetingController extends Controller
 {
@@ -28,7 +30,12 @@ class MeetingController extends Controller
 
         if ($v = $request->query('status'))          $query->where('status', $v);
         if ($v = $request->query('type'))             $query->where('type', $v);
-        if ($v = $request->query('association_id'))    $query->where('association_id', $v);
+        if ($v = $request->query('association_id')) {
+            $query->where(function ($q) use ($v) {
+                $q->where('association_id', $v)
+                  ->orWhereHas('property', fn ($pq) => $pq->where('association_id', $v));
+            });
+        }
         if ($v = $request->query('property_id'))       $query->where('property_id', $v);
         if ($v = $request->query('attendance_type'))   $query->where('attendance_type', $v);
         if ($request->has('is_remote'))                $query->where('is_remote', filter_var($request->query('is_remote'), FILTER_VALIDATE_BOOLEAN));
@@ -94,6 +101,12 @@ class MeetingController extends Controller
             'attendees.*.status'   => ['required', 'string', 'in:present,absent,excused'],
         ]);
 
+        $this->validateOwnersBelongToAssociation(
+            array_column($data['attendees'], 'owner_id'),
+            $meeting->association_id,
+            'attendees'
+        );
+
         $meeting->update(['attendees' => $data['attendees']]);
         ActivityLog::record('meeting', $meeting->id, 'attendance', 'تم تحديث كشف الحضور — ' . $meeting->title);
 
@@ -110,6 +123,7 @@ class MeetingController extends Controller
             $this->arMessages(),
         );
 
+        $data = $this->normalizeAssociationScope($data);
         $data['meeting_number'] = 'MTG-' . date('Y') . '-' . str_pad((Meeting::max('id') ?? 0) + 1, 5, '0', STR_PAD_LEFT);
         $data['status'] = $data['status'] ?? 'scheduled';
 
@@ -140,7 +154,17 @@ class MeetingController extends Controller
             $this->arMessages(),
         );
 
-        if (isset($data['attendance_type'])) {
+        $refreshInvitees = count(array_intersect(array_keys($data), [
+            'attendance_type',
+            'association_id',
+            'property_id',
+            'attendance_scope_id',
+            'invitees',
+        ])) > 0;
+
+        $data = $this->normalizeAssociationScope($data, $meeting);
+
+        if ($refreshInvitees) {
             $merged = array_merge($meeting->toArray(), $data);
             $data['invitees'] = $this->resolveInvitees($merged);
         }
@@ -170,6 +194,8 @@ class MeetingController extends Controller
             'owner_ids.required' => 'قائمة المدعوين مطلوبة',
             'owner_ids.min'      => 'يجب إضافة مدعو واحد على الأقل',
         ]);
+
+        $this->validateOwnersBelongToAssociation($data['owner_ids'], $meeting->association_id, 'owner_ids');
 
         $current = $meeting->invitees ?? [];
         $merged  = array_values(array_unique(array_merge($current, $data['owner_ids'])));
@@ -298,7 +324,10 @@ class MeetingController extends Controller
             if (! $associationId) {
                 return $data['invitees'] ?? [];
             }
-            return Owner::whereHas('units.property', fn ($q) => $q->where('association_id', $associationId))
+            return Owner::where(function ($q) use ($associationId) {
+                $q->whereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
+                  ->orWhereHas('units.property', fn ($uq) => $uq->where('association_id', $associationId));
+            })
                 ->pluck('id')
                 ->unique()
                 ->values()
@@ -310,7 +339,10 @@ class MeetingController extends Controller
             if (! $propertyId) {
                 return $data['invitees'] ?? [];
             }
-            return Owner::whereHas('units', fn ($q) => $q->where('property_id', $propertyId))
+            return Owner::where(function ($q) use ($propertyId) {
+                $q->whereHas('properties', fn ($pq) => $pq->whereKey($propertyId))
+                  ->orWhereHas('units', fn ($uq) => $uq->where('property_id', $propertyId));
+            })
                 ->pluck('id')
                 ->unique()
                 ->values()
@@ -318,6 +350,77 @@ class MeetingController extends Controller
         }
 
         // 'selected_owners' or null — use provided array
-        return $data['invitees'] ?? [];
+        $invitees = $data['invitees'] ?? [];
+        $this->validateOwnersBelongToAssociation($invitees, $data['association_id'] ?? null, 'invitees');
+        return $invitees;
+    }
+
+    private function normalizeAssociationScope(array $data, ?Meeting $meeting = null): array
+    {
+        $associationId = $this->nullableInt($data['association_id'] ?? $meeting?->association_id);
+        $propertyId = $this->nullableInt(array_key_exists('property_id', $data) ? $data['property_id'] : $meeting?->property_id);
+        $scopePropertyId = $this->nullableInt(array_key_exists('attendance_scope_id', $data) ? $data['attendance_scope_id'] : $meeting?->attendance_scope_id);
+
+        if ($propertyId) {
+            $propertyAssociationId = $this->nullableInt(Property::whereKey($propertyId)->value('association_id'));
+            if ($associationId && $propertyAssociationId && $propertyAssociationId !== $associationId) {
+                throw ValidationException::withMessages([
+                    'property_id' => ['العقار المحدد لا يتبع الجمعية الحالية.'],
+                ]);
+            }
+            $associationId = $associationId ?: $propertyAssociationId;
+        }
+
+        if ($scopePropertyId) {
+            $scopeAssociationId = $this->nullableInt(Property::whereKey($scopePropertyId)->value('association_id'));
+            if ($associationId && $scopeAssociationId && $scopeAssociationId !== $associationId) {
+                throw ValidationException::withMessages([
+                    'attendance_scope_id' => ['عقار نطاق الحضور لا يتبع الجمعية الحالية.'],
+                ]);
+            }
+            $associationId = $associationId ?: $scopeAssociationId;
+        }
+
+        if (! empty($data['invitees'])) {
+            $this->validateOwnersBelongToAssociation($data['invitees'], $associationId, 'invitees');
+        }
+
+        $data['association_id'] = $associationId;
+        if (array_key_exists('property_id', $data)) {
+            $data['property_id'] = $propertyId;
+        }
+        if (array_key_exists('attendance_scope_id', $data)) {
+            $data['attendance_scope_id'] = $scopePropertyId;
+        }
+
+        return $data;
+    }
+
+    private function validateOwnersBelongToAssociation(array $ownerIds, mixed $associationId, string $field): void
+    {
+        $associationId = $this->nullableInt($associationId);
+        $ownerIds = array_values(array_unique(array_filter(array_map(fn ($id) => $this->nullableInt($id), $ownerIds))));
+
+        if (! $associationId || count($ownerIds) === 0) {
+            return;
+        }
+
+        $validCount = Owner::whereIn('id', $ownerIds)
+            ->where(function ($q) use ($associationId) {
+                $q->whereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
+                  ->orWhereHas('units.property', fn ($uq) => $uq->where('association_id', $associationId));
+            })
+            ->count();
+
+        if ($validCount !== count($ownerIds)) {
+            throw ValidationException::withMessages([
+                $field => ['يوجد مالك خارج نطاق الجمعية الحالية.'],
+            ]);
+        }
+    }
+
+    private function nullableInt(mixed $value): ?int
+    {
+        return $value === null || $value === '' ? null : (int) $value;
     }
 }

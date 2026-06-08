@@ -3,8 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\{Facility, Booking, Setting};
+use App\Models\{Facility, Booking, Setting, Owner, Property};
 use Illuminate\Http\{Request, JsonResponse};
+use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;
 
 class FacilityController extends Controller
@@ -67,6 +68,7 @@ class FacilityController extends Controller
             'rules' => 'nullable|array|max:50',
             'rules.*' => 'string|max:1000',
         ]);
+        $data = $this->validateFacilityScope($data);
 
         // SECURITY: only validated keys reach the model — prevents mass assignment of arbitrary columns.
         $facility = Facility::create($data);
@@ -78,6 +80,8 @@ class FacilityController extends Controller
         $facility = Facility::findOrFail($id);
 
         $data = $request->validate([
+            'association_id' => 'nullable|exists:associations,id',
+            'property_id' => 'nullable|exists:properties,id',
             'name' => 'sometimes|string|max:255',
             'facility_type' => 'sometimes|string|max:100',
             'description' => 'nullable|string|max:5000',
@@ -93,6 +97,7 @@ class FacilityController extends Controller
             'rules' => 'nullable|array|max:50',
             'rules.*' => 'string|max:1000',
         ]);
+        $data = $this->validateFacilityScope($data, $facility);
 
         $facility->update($data);
         return response()->json(['data' => $facility, 'message' => 'updated']);
@@ -196,6 +201,12 @@ class FacilityController extends Controller
 
             if (!$facility->is_bookable) {
                 return response()->json(['message' => 'facility_not_bookable'], 400);
+            }
+
+            if (!empty($data['owner_id']) && !$this->ownerBelongsToAssociation((int) $data['owner_id'], (int) $facility->association_id)) {
+                throw ValidationException::withMessages([
+                    'owner_id' => ['المالك المحدد لا يتبع جمعية هذا المرفق.'],
+                ]);
             }
 
             $startsAt = Carbon::parse("{$data['date']} {$data['start_time']}");
@@ -339,5 +350,29 @@ class FacilityController extends Controller
                 'total' => $data->total(),
             ],
         ]);
+    }
+
+    private function validateFacilityScope(array $data, ?Facility $facility = null): array
+    {
+        $associationId = $data['association_id'] ?? $facility?->association_id;
+        $propertyId = array_key_exists('property_id', $data) ? $data['property_id'] : $facility?->property_id;
+
+        if ($associationId && $propertyId && !Property::whereKey($propertyId)->where('association_id', $associationId)->exists()) {
+            throw ValidationException::withMessages([
+                'property_id' => ['العقار المحدد لا يتبع هذه الجمعية.'],
+            ]);
+        }
+
+        return $data;
+    }
+
+    private function ownerBelongsToAssociation(int $ownerId, int $associationId): bool
+    {
+        return Owner::whereKey($ownerId)
+            ->where(function ($q) use ($associationId) {
+                $q->whereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
+                  ->orWhereHas('units.property', fn ($uq) => $uq->where('association_id', $associationId));
+            })
+            ->exists();
     }
 }

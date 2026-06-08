@@ -5,11 +5,15 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Contract;
+use App\Models\Owner;
+use App\Models\Property;
 use App\Models\Tenant;
+use App\Models\Unit;
 use App\Services\EjarService;
 use App\Services\Notifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class ContractController extends Controller
 {
@@ -25,7 +29,7 @@ class ContractController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $query = Contract::with(['tenant', 'unit', 'owner', 'property']);
+        $query = Contract::with(['tenant', 'unit.property.association', 'owner', 'property.association', 'association']);
 
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
@@ -40,6 +44,13 @@ class ContractController extends Controller
         if ($v = $request->query('status'))          $query->where('status', $v);
         if ($v = $request->query('contract_nature'))  $query->where('contract_nature', $v);
         if ($v = $request->query('contract_type'))    $query->where('contract_type', $v);
+        if ($v = $request->query('association_id')) {
+            $query->where(function ($q) use ($v) {
+                $q->where('association_id', $v)
+                  ->orWhereHas('property', fn ($pq) => $pq->where('association_id', $v))
+                  ->orWhereHas('unit.property', fn ($uq) => $uq->where('association_id', $v));
+            });
+        }
 
         $perPage = (int) $request->query('per_page', 15);
         $records = $query->latest('id')->paginate($perPage);
@@ -57,7 +68,7 @@ class ContractController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $contract = Contract::with(['tenant', 'unit.property.association', 'owner'])->findOrFail($id);
+        $contract = Contract::with(['tenant', 'unit.property.association', 'owner', 'property.association', 'association'])->findOrFail($id);
         return response()->json(['data' => $contract]);
     }
 
@@ -93,6 +104,7 @@ class ContractController extends Controller
             'status'                    => ['nullable', 'string', 'max:50'],
             'unit_id'                   => ['nullable', 'exists:units,id'],
             'owner_id'                  => ['nullable', 'exists:owners,id'],
+            'association_id'            => ['nullable', 'exists:associations,id'],
             'property_id'               => ['nullable', 'exists:properties,id'],
             'tenant_id'                 => ['nullable', 'exists:tenants,id'],
             'tenant_name'               => ['nullable', 'string', 'max:255'],
@@ -105,6 +117,7 @@ class ContractController extends Controller
 
         $data['contract_number'] = 'CTR-' . date('Y') . '-' . str_pad((Contract::max('id') ?? 0) + 1, 5, '0', STR_PAD_LEFT);
         $data['status'] = $data['status'] ?? 'active';
+        $data = $this->normalizeAssociationScope($data);
 
         $contract = Contract::create($data);
         ActivityLog::record('contract', $contract->id, 'created', 'تم إنشاء عقد — ' . $contract->contract_name);
@@ -156,6 +169,7 @@ class ContractController extends Controller
             'status'                    => ['nullable', 'string', 'max:50'],
             'unit_id'                   => ['nullable', 'exists:units,id'],
             'owner_id'                  => ['nullable', 'exists:owners,id'],
+            'association_id'            => ['nullable', 'exists:associations,id'],
             'property_id'               => ['nullable', 'exists:properties,id'],
             'tenant_id'                 => ['nullable', 'exists:tenants,id'],
             'tenant_name'               => ['nullable', 'string', 'max:255'],
@@ -164,6 +178,7 @@ class ContractController extends Controller
             'contract_period'           => ['nullable', 'string', 'max:50'],
         ]);
 
+        $data = $this->normalizeAssociationScope($data, $contract);
         $contract->update($data);
         ActivityLog::record('contract', $contract->id, 'updated', 'تم تحديث عقد — ' . $contract->contract_name);
 
@@ -202,5 +217,60 @@ class ContractController extends Controller
     public function clauses(): JsonResponse
     {
         return response()->json(['data' => EjarService::STANDARD_CLAUSES]);
+    }
+
+    private function normalizeAssociationScope(array $data, ?Contract $contract = null): array
+    {
+        $associationId = $data['association_id'] ?? $contract?->association_id;
+        $propertyId = array_key_exists('property_id', $data) ? $data['property_id'] : $contract?->property_id;
+        $unitId = array_key_exists('unit_id', $data) ? $data['unit_id'] : $contract?->unit_id;
+        $ownerId = array_key_exists('owner_id', $data) ? $data['owner_id'] : $contract?->owner_id;
+
+        if (!$associationId && $propertyId) {
+            $associationId = Property::whereKey($propertyId)->value('association_id');
+        }
+
+        if (!$associationId && $unitId) {
+            $associationId = Unit::with('property')->find($unitId)?->property?->association_id;
+        }
+
+        if (!$associationId) {
+            return $data;
+        }
+
+        if ($propertyId && !Property::whereKey($propertyId)->where('association_id', $associationId)->exists()) {
+            throw ValidationException::withMessages([
+                'property_id' => ['العقار المحدد لا يتبع هذه الجمعية.'],
+            ]);
+        }
+
+        if ($unitId) {
+            $unit = Unit::with('property')->find($unitId);
+            if (!$unit || (int) $unit->property?->association_id !== (int) $associationId) {
+                throw ValidationException::withMessages([
+                    'unit_id' => ['الوحدة المحددة لا تتبع هذه الجمعية.'],
+                ]);
+            }
+        }
+
+        if ($ownerId && !$this->ownerBelongsToAssociation((int) $ownerId, (int) $associationId)) {
+            throw ValidationException::withMessages([
+                'owner_id' => ['المالك المحدد لا يتبع هذه الجمعية.'],
+            ]);
+        }
+
+        $data['association_id'] = $associationId;
+
+        return $data;
+    }
+
+    private function ownerBelongsToAssociation(int $ownerId, int $associationId): bool
+    {
+        return Owner::whereKey($ownerId)
+            ->where(function ($q) use ($associationId) {
+                $q->whereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
+                  ->orWhereHas('units.property', fn ($uq) => $uq->where('association_id', $associationId));
+            })
+            ->exists();
     }
 }

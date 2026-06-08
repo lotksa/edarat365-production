@@ -16,7 +16,7 @@ class Contract extends Model
         'party1_type', 'party1_name', 'party1_national_id', 'party1_phone', 'party1_email', 'party1_address',
         'party2_type', 'party2_name', 'party2_national_id', 'party2_phone', 'party2_email', 'party2_address',
         'preamble', 'contract_clauses',
-        'property_id', 'owner_id', 'unit_id', 'tenant_id',
+        'association_id', 'property_id', 'owner_id', 'unit_id', 'tenant_id',
         'tenant_name', 'start_date', 'end_date',
         'payment_type', 'contract_period', 'rental_amount',
         'status', 'notes',
@@ -47,6 +47,11 @@ class Contract extends Model
     public function property(): BelongsTo
     {
         return $this->belongsTo(Property::class);
+    }
+
+    public function association(): BelongsTo
+    {
+        return $this->belongsTo(Association::class);
     }
 
     public function unit(): BelongsTo

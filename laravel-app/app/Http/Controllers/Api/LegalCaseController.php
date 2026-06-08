@@ -6,15 +6,19 @@ use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\CaseUpdate;
 use App\Models\LegalCase;
+use App\Models\Owner;
+use App\Models\Property;
+use App\Models\Unit;
 use App\Services\Notifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class LegalCaseController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $query = LegalCase::with(['association', 'property', 'owner', 'unit']);
+        $query = LegalCase::with(['association', 'property', 'owner', 'unit.property']);
 
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
@@ -29,7 +33,13 @@ class LegalCaseController extends Controller
         if ($v = $request->query('status'))          $query->where('status', $v);
         if ($v = $request->query('case_type'))        $query->where('case_type', $v);
         if ($v = $request->query('priority'))         $query->where('priority', $v);
-        if ($v = $request->query('association_id'))    $query->where('association_id', $v);
+        if ($v = $request->query('association_id')) {
+            $query->where(function ($q) use ($v) {
+                $q->where('association_id', $v)
+                  ->orWhereHas('property', fn ($pq) => $pq->where('association_id', $v))
+                  ->orWhereHas('unit.property', fn ($uq) => $uq->where('association_id', $v));
+            });
+        }
         if ($v = $request->query('property_id'))       $query->where('property_id', $v);
         if ($v = $request->query('owner_id'))          $query->where('owner_id', $v);
         if ($v = $request->query('unit_id'))           $query->where('unit_id', $v);
@@ -40,7 +50,7 @@ class LegalCaseController extends Controller
         $items = collect($records->items())->map(function ($case) {
             $arr = $case->toArray();
             $arr['owner_name'] = $case->owner?->full_name ?? '-';
-            $arr['property_name'] = $case->property?->name ?? '-';
+            $arr['property_name'] = $case->property?->name ?? $case->unit?->property?->name ?? '-';
             return $arr;
         });
 
@@ -67,7 +77,7 @@ class LegalCaseController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $case = LegalCase::with(['association', 'property', 'owner', 'unit', 'updates.creator'])->findOrFail($id);
+        $case = LegalCase::with(['association', 'property', 'owner', 'unit.property', 'updates.creator'])->findOrFail($id);
         return response()->json(['data' => $case]);
     }
 
@@ -98,6 +108,7 @@ class LegalCaseController extends Controller
             'title.required' => 'عنوان القضية مطلوب',
         ]);
 
+        $data = $this->normalizeAssociationScope($data);
         $data['case_number'] = 'CASE-' . date('Y') . '-' . str_pad((LegalCase::max('id') ?? 0) + 1, 5, '0', STR_PAD_LEFT);
         $data['status'] = $data['status'] ?? 'open';
 
@@ -143,6 +154,7 @@ class LegalCaseController extends Controller
             'status'         => ['nullable', 'string', 'max:50'],
         ]);
 
+        $data = $this->normalizeAssociationScope($data, $case);
         $oldStatus = $case->status;
         $case->update($data);
         ActivityLog::record('legal_case', $case->id, 'updated', 'تم تحديث قضية — ' . $case->title);
@@ -258,5 +270,73 @@ class LegalCaseController extends Controller
             'path' => '/storage/' . $path,
             'size' => $file->getSize(),
         ]);
+    }
+
+    private function normalizeAssociationScope(array $data, ?LegalCase $case = null): array
+    {
+        $associationId = $this->nullableInt($data['association_id'] ?? $case?->association_id);
+        $propertyId = $this->nullableInt(array_key_exists('property_id', $data) ? $data['property_id'] : $case?->property_id);
+        $unitId = $this->nullableInt(array_key_exists('unit_id', $data) ? $data['unit_id'] : $case?->unit_id);
+        $ownerId = $this->nullableInt(array_key_exists('owner_id', $data) ? $data['owner_id'] : $case?->owner_id);
+
+        if ($propertyId) {
+            $propertyAssociationId = $this->nullableInt(Property::whereKey($propertyId)->value('association_id'));
+            if ($associationId && $propertyAssociationId && $propertyAssociationId !== $associationId) {
+                throw ValidationException::withMessages([
+                    'property_id' => ['العقار المحدد لا يتبع الجمعية الحالية.'],
+                ]);
+            }
+            $associationId = $associationId ?: $propertyAssociationId;
+        }
+
+        if ($unitId) {
+            $unit = Unit::with('property:id,association_id')->find($unitId);
+            $unitAssociationId = $this->nullableInt($unit?->property?->association_id);
+            if ($propertyId && $unit && (int) $unit->property_id !== $propertyId) {
+                throw ValidationException::withMessages([
+                    'unit_id' => ['الوحدة المحددة لا تتبع العقار الحالي.'],
+                ]);
+            }
+            if ($associationId && $unitAssociationId && $unitAssociationId !== $associationId) {
+                throw ValidationException::withMessages([
+                    'unit_id' => ['الوحدة المحددة لا تتبع الجمعية الحالية.'],
+                ]);
+            }
+            $associationId = $associationId ?: $unitAssociationId;
+        }
+
+        if ($associationId && $ownerId && ! $this->ownerBelongsToAssociation($ownerId, $associationId)) {
+            throw ValidationException::withMessages([
+                'owner_id' => ['المالك المحدد لا يتبع الجمعية الحالية.'],
+            ]);
+        }
+
+        $data['association_id'] = $associationId;
+        if (array_key_exists('property_id', $data)) {
+            $data['property_id'] = $propertyId;
+        }
+        if (array_key_exists('unit_id', $data)) {
+            $data['unit_id'] = $unitId;
+        }
+        if (array_key_exists('owner_id', $data)) {
+            $data['owner_id'] = $ownerId;
+        }
+
+        return $data;
+    }
+
+    private function ownerBelongsToAssociation(int $ownerId, int $associationId): bool
+    {
+        return Owner::whereKey($ownerId)
+            ->where(function ($q) use ($associationId) {
+                $q->whereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
+                  ->orWhereHas('units.property', fn ($uq) => $uq->where('association_id', $associationId));
+            })
+            ->exists();
+    }
+
+    private function nullableInt(mixed $value): ?int
+    {
+        return $value === null || $value === '' ? null : (int) $value;
     }
 }

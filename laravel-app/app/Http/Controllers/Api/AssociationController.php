@@ -258,24 +258,30 @@ class AssociationController extends Controller
             ->values();
 
         $data['contracts'] = \App\Models\Contract::where(function ($q) use ($id) {
-            $q->whereHas('property', fn($q2) => $q2->where('association_id', $id))
+            $q->where('association_id', $id)
+              ->orWhereHas('property', fn($q2) => $q2->where('association_id', $id))
               ->orWhereHas('unit', fn($q2) => $q2->whereHas('property', fn($q3) => $q3->where('association_id', $id)));
         })->orderByDesc('id')->limit(50)->get();
 
         $data['maintenance_requests'] = \App\Models\MaintenanceRequest::where(function ($q) use ($id) {
             $q->where('association_id', $id)
+              ->orWhereHas('property', fn($q2) => $q2->where('association_id', $id))
               ->orWhereHas('unit', fn($q2) => $q2->whereHas('property', fn($q3) => $q3->where('association_id', $id)));
         })->with(['owner', 'unit'])->orderByDesc('id')->limit(50)->get();
 
-        $legalCases = \App\Models\LegalCase::with(['owner', 'property', 'unit'])
-            ->where('association_id', $id)
+        $legalCases = \App\Models\LegalCase::with(['owner', 'property', 'unit.property'])
+            ->where(function ($q) use ($id) {
+                $q->where('association_id', $id)
+                  ->orWhereHas('property', fn($q2) => $q2->where('association_id', $id))
+                  ->orWhereHas('unit', fn($q2) => $q2->whereHas('property', fn($q3) => $q3->where('association_id', $id)));
+            })
             ->orderByDesc('id')
             ->limit(50)
             ->get()
             ->map(function ($case) {
                 $arr = $case->toArray();
                 $arr['owner_name'] = $case->owner?->full_name ?? '-';
-                $arr['property_name'] = $case->property?->name ?? '-';
+                $arr['property_name'] = $case->property?->name ?? $case->unit?->property?->name ?? '-';
                 return $arr;
             });
         $data['legal_cases'] = $legalCases;

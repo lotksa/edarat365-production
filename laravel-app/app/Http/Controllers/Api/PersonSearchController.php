@@ -9,6 +9,7 @@ use App\Models\PropertyManager;
 use App\Models\Tenant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class PersonSearchController extends Controller
 {
@@ -18,6 +19,7 @@ class PersonSearchController extends Controller
         if (mb_strlen($search) < 2) {
             return response()->json(['data' => []]);
         }
+        $associationId = $request->integer('association_id') ?: null;
 
         $seen = [];
         $results = [];
@@ -30,14 +32,30 @@ class PersonSearchController extends Controller
         ];
 
         foreach ($sources as $src) {
+            if ($associationId && $src['model'] !== Owner::class) {
+                continue;
+            }
+
+            $hasEmail = Schema::hasColumn((new $src['model'])->getTable(), 'email');
             $query = $src['model']::query()
-                ->where(function ($q) use ($search) {
+                ->where(function ($q) use ($search, $hasEmail) {
                     $q->where('full_name', 'like', "%{$search}%")
                       ->orWhere('national_id', 'like', "%{$search}%")
                       ->orWhere('phone', 'like', "%{$search}%");
-                })
-                ->limit(20)
-                ->get();
+
+                    if ($hasEmail) {
+                        $q->orWhere('email', 'like', "%{$search}%");
+                    }
+                });
+
+            if ($associationId && $src['model'] === Owner::class) {
+                $query->where(function ($q) use ($associationId) {
+                    $q->whereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
+                      ->orWhereHas('units.property', fn ($uq) => $uq->where('association_id', $associationId));
+                });
+            }
+
+            $query = $query->limit(20)->get();
 
             foreach ($query as $person) {
                 $nid = $person->national_id;

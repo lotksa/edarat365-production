@@ -4,8 +4,12 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\MaintenanceRequest;
+use App\Models\Owner;
+use App\Models\Property;
+use App\Models\Unit;
 use App\Services\Notifier;
 use Illuminate\Http\{Request, JsonResponse};
+use Illuminate\Validation\ValidationException;
 
 class MaintenanceController extends Controller
 {
@@ -14,7 +18,12 @@ class MaintenanceController extends Controller
         $q = MaintenanceRequest::with(['association', 'property', 'unit', 'owner']);
 
         if ($request->filled('association_id')) {
-            $q->where('association_id', $request->association_id);
+            $associationId = $request->association_id;
+            $q->where(function ($sq) use ($associationId) {
+                $sq->where('association_id', $associationId)
+                   ->orWhereHas('property', fn ($pq) => $pq->where('association_id', $associationId))
+                   ->orWhereHas('unit.property', fn ($uq) => $uq->where('association_id', $associationId));
+            });
         }
         if ($request->filled('property_id')) {
             $q->where('property_id', $request->property_id);
@@ -85,6 +94,7 @@ class MaintenanceController extends Controller
         ]);
 
         if (!isset($data['status'])) $data['status'] = 'open';
+        $data = $this->normalizeAssociationScope($data);
         // SECURITY: only validated keys reach the model.
         $item = MaintenanceRequest::create($data);
         $item->load(['association', 'property', 'unit', 'owner']);
@@ -109,6 +119,10 @@ class MaintenanceController extends Controller
 
         $data = $request->validate([
             'title' => 'sometimes|string|max:255',
+            'association_id' => 'nullable|exists:associations,id',
+            'property_id' => 'nullable|exists:properties,id',
+            'owner_id' => 'nullable|exists:owners,id',
+            'unit_id' => 'nullable|exists:units,id',
             'type' => 'nullable|string|max:100',
             'category' => 'nullable|string|max:100',
             'description' => 'nullable|string|max:5000',
@@ -128,6 +142,7 @@ class MaintenanceController extends Controller
         ]);
 
         $oldStatus = $item->status;
+        $data = $this->normalizeAssociationScope($data, $item);
         $item->update($data);
 
         if ($oldStatus !== 'completed' && ($data['status'] ?? null) === 'completed' && !$item->completed_date) {
@@ -161,7 +176,14 @@ class MaintenanceController extends Controller
     public function stats(Request $request): JsonResponse
     {
         $q = MaintenanceRequest::query();
-        if ($request->filled('association_id')) $q->where('association_id', $request->association_id);
+        if ($request->filled('association_id')) {
+            $associationId = $request->association_id;
+            $q->where(function ($sq) use ($associationId) {
+                $sq->where('association_id', $associationId)
+                   ->orWhereHas('property', fn ($pq) => $pq->where('association_id', $associationId))
+                   ->orWhereHas('unit.property', fn ($uq) => $uq->where('association_id', $associationId));
+            });
+        }
         if ($request->filled('property_id')) $q->where('property_id', $request->property_id);
         if ($request->filled('owner_id')) $q->where('owner_id', $request->owner_id);
 
@@ -206,5 +228,60 @@ class MaintenanceController extends Controller
         }
 
         return response()->json(['data' => $item, 'message' => 'status_updated']);
+    }
+
+    private function normalizeAssociationScope(array $data, ?MaintenanceRequest $item = null): array
+    {
+        $associationId = $data['association_id'] ?? $item?->association_id;
+        $propertyId = array_key_exists('property_id', $data) ? $data['property_id'] : $item?->property_id;
+        $unitId = array_key_exists('unit_id', $data) ? $data['unit_id'] : $item?->unit_id;
+        $ownerId = array_key_exists('owner_id', $data) ? $data['owner_id'] : $item?->owner_id;
+
+        if (!$associationId && $propertyId) {
+            $associationId = Property::whereKey($propertyId)->value('association_id');
+        }
+
+        if (!$associationId && $unitId) {
+            $associationId = Unit::with('property')->find($unitId)?->property?->association_id;
+        }
+
+        if (!$associationId) {
+            return $data;
+        }
+
+        if ($propertyId && !Property::whereKey($propertyId)->where('association_id', $associationId)->exists()) {
+            throw ValidationException::withMessages([
+                'property_id' => ['العقار المحدد لا يتبع هذه الجمعية.'],
+            ]);
+        }
+
+        if ($unitId) {
+            $unit = Unit::with('property')->find($unitId);
+            if (!$unit || (int) $unit->property?->association_id !== (int) $associationId) {
+                throw ValidationException::withMessages([
+                    'unit_id' => ['الوحدة المحددة لا تتبع هذه الجمعية.'],
+                ]);
+            }
+        }
+
+        if ($ownerId && !$this->ownerBelongsToAssociation((int) $ownerId, (int) $associationId)) {
+            throw ValidationException::withMessages([
+                'owner_id' => ['المالك المحدد لا يتبع هذه الجمعية.'],
+            ]);
+        }
+
+        $data['association_id'] = $associationId;
+
+        return $data;
+    }
+
+    private function ownerBelongsToAssociation(int $ownerId, int $associationId): bool
+    {
+        return Owner::whereKey($ownerId)
+            ->where(function ($q) use ($associationId) {
+                $q->whereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
+                  ->orWhereHas('units.property', fn ($uq) => $uq->where('association_id', $associationId));
+            })
+            ->exists();
     }
 }
