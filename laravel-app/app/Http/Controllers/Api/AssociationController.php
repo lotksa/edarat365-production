@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Association;
+use App\Models\Invoice;
+use App\Models\Owner;
 use App\Models\Setting;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -202,11 +204,58 @@ class AssociationController extends Controller
         $data['meetings'] = \App\Models\Meeting::where('association_id', $id)
             ->orderByDesc('scheduled_at')->limit(50)->get();
 
-        $data['invoices'] = \App\Models\Invoice::where(function ($q) use ($id) {
+        $invoiceRelations = [
+            'association:id,name,name_en',
+            'property:id,name,association_id',
+            'owner:id,account_number,full_name,national_id,phone,email',
+            'unit:id,property_id,unit_number,unit_code',
+            'unit.property:id,name,association_id',
+        ];
+        $associationInvoiceScope = function ($q) use ($id) {
             $q->where('association_id', $id)
               ->orWhereHas('property', fn($q2) => $q2->where('association_id', $id))
-              ->orWhereHas('unit', fn($q2) => $q2->whereHas('property', fn($q3) => $q3->where('association_id', $id)));
-        })->orderByDesc('id')->limit(50)->get();
+              ->orWhereHas('unit.property', fn($q2) => $q2->where('association_id', $id));
+        };
+        $formatInvoice = function (Invoice $invoice) {
+            $arr = $invoice->toArray();
+            $arr['owner_name'] = $invoice->owner?->full_name ?? '-';
+            $arr['property_name'] = $invoice->property?->name ?? $invoice->unit?->property?->name ?? '-';
+            $arr['unit_number'] = $invoice->unit?->unit_number ?? $invoice->unit?->unit_code ?? '-';
+
+            return $arr;
+        };
+
+        $associationOwnerIds = Owner::query()
+            ->whereHas('properties', fn($q) => $q->where('association_id', $id))
+            ->orWhereHas('units.property', fn($q) => $q->where('association_id', $id))
+            ->pluck('id');
+
+        $associationInvoices = Invoice::with($invoiceRelations)
+            ->where($associationInvoiceScope)
+            ->whereNull('owner_id')
+            ->orderByDesc('id')
+            ->limit(50)
+            ->get()
+            ->map($formatInvoice);
+
+        $ownerInvoices = Invoice::with($invoiceRelations)
+            ->where(function ($q) use ($id, $associationOwnerIds, $associationInvoiceScope) {
+                $q->whereIn('owner_id', $associationOwnerIds)
+                  ->orWhere(function ($q2) use ($associationInvoiceScope) {
+                      $q2->whereNotNull('owner_id')->where($associationInvoiceScope);
+                  });
+            })
+            ->orderByDesc('id')
+            ->limit(100)
+            ->get()
+            ->map($formatInvoice);
+
+        $data['association_invoices'] = $associationInvoices;
+        $data['owner_invoices'] = $ownerInvoices;
+        $data['invoices'] = collect($associationInvoices->all())
+            ->merge($ownerInvoices->all())
+            ->unique('id')
+            ->values();
 
         $data['contracts'] = \App\Models\Contract::where(function ($q) use ($id) {
             $q->whereHas('property', fn($q2) => $q2->where('association_id', $id))
@@ -245,6 +294,14 @@ class AssociationController extends Controller
             'invoices' => [
                 'total' => count($data['invoices'] ?? []),
                 'total_amount' => collect($data['invoices'])->sum('total_amount'),
+            ],
+            'association_invoices' => [
+                'total' => $associationInvoices->count(),
+                'total_amount' => $associationInvoices->sum('total_amount'),
+            ],
+            'owner_invoices' => [
+                'total' => $ownerInvoices->count(),
+                'total_amount' => $ownerInvoices->sum('total_amount'),
             ],
             'maintenance' => [
                 'total' => count($data['maintenance_requests'] ?? []),
