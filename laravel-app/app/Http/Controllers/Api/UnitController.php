@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
+use App\Models\Contract;
 use App\Models\Invoice;
+use App\Models\MaintenanceRequest;
 use App\Models\Owner;
 use App\Models\Property;
 use App\Models\Setting;
@@ -160,9 +162,11 @@ class UnitController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $unit = Unit::with(['property.association', 'owners', 'invoices', 'contracts', 'components', 'privateParts', 'images', 'maintenanceRequests'])->findOrFail($id);
+        $unit = Unit::with(['property.association', 'owners', 'components', 'privateParts', 'images'])->findOrFail($id);
         $data = $unit->toArray();
         $data['invoices'] = $this->unitInvoices($unit);
+        $data['contracts'] = $this->unitContracts($unit);
+        $data['maintenance_requests'] = $this->unitMaintenanceRequests($unit);
         $data['association_logo'] = $unit->property?->association?->logo ?? null;
         $data['activity_logs'] = ActivityLog::where('subject_type', 'unit')
             ->where('subject_id', $id)
@@ -174,30 +178,24 @@ class UnitController extends Controller
 
     private function unitInvoices(Unit $unit)
     {
-        $unit->loadMissing(['owners', 'property']);
-        $ownerIds = $unit->owners->pluck('id')->filter()->values();
-
         return Invoice::with(['association', 'property', 'owner', 'unit', 'tenant'])
-            ->where(function ($query) use ($unit, $ownerIds) {
-                $query->where('unit_id', $unit->id);
+            ->where('unit_id', $unit->id)
+            ->latest('id')
+            ->get();
+    }
 
-                if ($ownerIds->isNotEmpty()) {
-                    $query->orWhere(function ($ownerScoped) use ($unit, $ownerIds) {
-                        $ownerScoped->whereIn('owner_id', $ownerIds)
-                            ->where(function ($unitScoped) use ($unit) {
-                                $unitScoped->whereNull('unit_id')
-                                    ->orWhere('unit_id', $unit->id);
-                            })
-                            ->where(function ($propertyScoped) use ($unit) {
-                                $propertyScoped->whereNull('property_id');
+    private function unitContracts(Unit $unit)
+    {
+        return Contract::with(['tenant', 'owner', 'property.association', 'association', 'unit'])
+            ->where('unit_id', $unit->id)
+            ->latest('id')
+            ->get();
+    }
 
-                                if ($unit->property_id) {
-                                    $propertyScoped->orWhere('property_id', $unit->property_id);
-                                }
-                            });
-                    });
-                }
-            })
+    private function unitMaintenanceRequests(Unit $unit)
+    {
+        return MaintenanceRequest::with(['association', 'property', 'unit', 'owner'])
+            ->where('unit_id', $unit->id)
             ->latest('id')
             ->get();
     }

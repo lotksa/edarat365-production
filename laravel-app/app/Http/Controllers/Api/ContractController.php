@@ -44,6 +44,9 @@ class ContractController extends Controller
         if ($v = $request->query('status'))          $query->where('status', $v);
         if ($v = $request->query('contract_nature'))  $query->where('contract_nature', $v);
         if ($v = $request->query('contract_type'))    $query->where('contract_type', $v);
+        if ($v = $request->query('property_id'))      $query->where('property_id', $v);
+        if ($v = $request->query('unit_id'))          $query->where('unit_id', $v);
+        if ($v = $request->query('owner_id'))         $query->where('owner_id', $v);
         if ($v = $request->query('association_id')) {
             $query->where(function ($q) use ($v) {
                 $q->where('association_id', $v)
@@ -256,6 +259,14 @@ class ContractController extends Controller
         if ($ownerId && !$this->ownerBelongsToAssociation((int) $ownerId, (int) $associationId)) {
             throw ValidationException::withMessages([
                 'owner_id' => ['المالك المحدد لا يتبع هذه الجمعية.'],
+            ]);
+        }
+
+        if ($unitId && $ownerId && !Unit::whereKey($unitId)
+            ->whereHas('owners', fn ($q) => $q->where('owners.id', $ownerId))
+            ->exists()) {
+            throw ValidationException::withMessages([
+                'owner_id' => ['المالك المحدد لا يملك هذه الوحدة.'],
             ]);
         }
 

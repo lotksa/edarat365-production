@@ -31,6 +31,9 @@ class MaintenanceController extends Controller
         if ($request->filled('owner_id')) {
             $q->where('owner_id', $request->owner_id);
         }
+        if ($request->filled('unit_id')) {
+            $q->where('unit_id', $request->unit_id);
+        }
         if ($request->filled('status')) {
             $q->where('status', $request->status);
         }
@@ -186,6 +189,7 @@ class MaintenanceController extends Controller
         }
         if ($request->filled('property_id')) $q->where('property_id', $request->property_id);
         if ($request->filled('owner_id')) $q->where('owner_id', $request->owner_id);
+        if ($request->filled('unit_id')) $q->where('unit_id', $request->unit_id);
 
         $total = $q->count();
         $open = (clone $q)->where('status', 'open')->count();
@@ -267,6 +271,14 @@ class MaintenanceController extends Controller
         if ($ownerId && !$this->ownerBelongsToAssociation((int) $ownerId, (int) $associationId)) {
             throw ValidationException::withMessages([
                 'owner_id' => ['المالك المحدد لا يتبع هذه الجمعية.'],
+            ]);
+        }
+
+        if ($unitId && $ownerId && !Unit::whereKey($unitId)
+            ->whereHas('owners', fn ($q) => $q->where('owners.id', $ownerId))
+            ->exists()) {
+            throw ValidationException::withMessages([
+                'owner_id' => ['المالك المحدد لا يملك هذه الوحدة.'],
             ]);
         }
 
