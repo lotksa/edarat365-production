@@ -29,11 +29,11 @@ class ExportImportController extends Controller
 
     private const COLUMN_MAP = [
         'owners' => [
-            'id' => 'ID',
+            'account_number' => 'رقم الحساب',
             'full_name' => 'الاسم الكامل',
-            'email' => 'البريد الإلكتروني',
-            'phone' => 'رقم الجوال',
             'national_id' => 'رقم الهوية',
+            'phone' => 'رقم الجوال',
+            'email' => 'البريد الإلكتروني',
             'status' => 'الحالة',
             'created_at' => 'تاريخ الإنشاء',
         ],
@@ -156,6 +156,42 @@ class ExportImportController extends Controller
         ],
     ];
 
+    private const OWNER_TEMPLATE_COLUMNS = [
+        'full_name'   => 'اسم المالك',
+        'national_id' => 'رقم الهوية',
+        'phone'       => 'رقم الجوال',
+        'email'       => 'البريد الإلكتروني',
+        'status'      => 'الحالة',
+    ];
+
+    private const OWNER_IMPORT_ALIASES = [
+        'اسم المالك' => 'full_name',
+        'الاسم الكامل' => 'full_name',
+        'اسم المالك / Owner Name' => 'full_name',
+        'Owner Name' => 'full_name',
+        'full_name' => 'full_name',
+
+        'رقم الهوية' => 'national_id',
+        'رقم الهوية / National ID' => 'national_id',
+        'National ID' => 'national_id',
+        'national_id' => 'national_id',
+
+        'رقم الجوال' => 'phone',
+        'رقم الجوال / Phone' => 'phone',
+        'Phone' => 'phone',
+        'phone' => 'phone',
+
+        'البريد الإلكتروني' => 'email',
+        'البريد الإلكتروني / Email' => 'email',
+        'Email' => 'email',
+        'email' => 'email',
+
+        'الحالة' => 'status',
+        'الحالة / Status' => 'status',
+        'Status' => 'status',
+        'status' => 'status',
+    ];
+
     public function export(string $module, Request $request): StreamedResponse
     {
         if (!isset(self::MODULE_MAP[$module])) {
@@ -213,7 +249,7 @@ class ExportImportController extends Controller
             abort(404, 'Module not found');
         }
 
-        $cols = self::COLUMN_MAP[$module];
+        $cols = $module === 'owners' ? self::OWNER_TEMPLATE_COLUMNS : self::COLUMN_MAP[$module];
         $headers = array_values($cols);
         $filename = "{$module}_template.csv";
 
@@ -233,11 +269,15 @@ class ExportImportController extends Controller
             return response()->json(['message' => 'Module not found'], 404);
         }
 
+        if ($module === 'owners') {
+            return $this->importOwners($request);
+        }
+
         $validator = Validator::make($request->all(), [
-            'file' => ['required', 'file', 'mimes:csv,txt,xlsx,xls', 'max:10240'],
+            'file' => ['required', 'file', 'mimes:csv,txt', 'max:10240'],
         ], [
             'file.required' => 'الملف مطلوب',
-            'file.mimes'    => 'يجب أن يكون الملف بصيغة CSV أو Excel',
+            'file.mimes'    => 'يجب أن يكون الملف بصيغة CSV',
         ]);
 
         if ($validator->fails()) {
@@ -311,5 +351,181 @@ class ExportImportController extends Controller
             'created' => $created,
             'errors'  => $errors,
         ]);
+    }
+
+    private function importOwners(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'file' => ['required', 'file', 'mimes:csv,txt', 'max:10240'],
+        ], [
+            'file.required' => 'الملف مطلوب',
+            'file.mimes'    => 'يجب أن يكون ملف الملاك بصيغة CSV',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => $validator->errors()->first()], 422);
+        }
+
+        $file = $request->file('file');
+        $handle = fopen($file->getRealPath(), 'r');
+        if (!$handle) {
+            return response()->json(['message' => 'فشل في قراءة الملف'], 422);
+        }
+
+        $bom = fread($handle, 3);
+        if ($bom !== chr(0xEF) . chr(0xBB) . chr(0xBF)) {
+            fseek($handle, 0);
+        }
+
+        $csvHeaders = fgetcsv($handle);
+        if (!$csvHeaders) {
+            fclose($handle);
+            return response()->json(['message' => 'الملف فارغ أو غير صالح'], 422);
+        }
+
+        $fieldByIndex = [];
+        foreach ($csvHeaders as $idx => $header) {
+            $normalized = $this->cleanHeader((string) $header);
+            if (isset(self::OWNER_IMPORT_ALIASES[$normalized])) {
+                $fieldByIndex[$idx] = self::OWNER_IMPORT_ALIASES[$normalized];
+            }
+        }
+
+        if (!in_array('full_name', $fieldByIndex, true) || !in_array('national_id', $fieldByIndex, true)) {
+            fclose($handle);
+            return response()->json([
+                'message' => 'نموذج الملاك غير صحيح: يجب وجود أعمدة اسم المالك ورقم الهوية',
+            ], 422);
+        }
+
+        $created = 0;
+        $skipped = 0;
+        $errors = [];
+        $lineNum = 1;
+
+        while (($row = fgetcsv($handle)) !== false) {
+            $lineNum++;
+            if ($this->isEmptyCsvRow($row)) {
+                continue;
+            }
+
+            $data = [
+                'status' => 'active',
+            ];
+
+            foreach ($fieldByIndex as $idx => $field) {
+                $data[$field] = trim((string) ($row[$idx] ?? ''));
+            }
+
+            $rowErrors = $this->validateOwnerImportRow($data);
+            if (!empty($rowErrors)) {
+                foreach ($rowErrors as $error) {
+                    $errors[] = "سطر {$lineNum}: {$error}";
+                }
+                $skipped++;
+                if (count($errors) >= 10) {
+                    break;
+                }
+                continue;
+            }
+
+            $nationalId = $data['national_id'];
+            if (Owner::where('national_id_hash', Owner::blindHash($nationalId))->exists()) {
+                $errors[] = "سطر {$lineNum}: رقم الهوية موجود مسبقاً";
+                $skipped++;
+                if (count($errors) >= 10) {
+                    break;
+                }
+                continue;
+            }
+
+            try {
+                Owner::create([
+                    'full_name'   => $data['full_name'],
+                    'national_id' => $nationalId,
+                    'phone'       => ($data['phone'] ?? '') ?: null,
+                    'email'       => ($data['email'] ?? '') ?: null,
+                    'status'      => $this->normalizeOwnerStatus($data['status'] ?? null),
+                ]);
+                $created++;
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Owner import row failed', [
+                    'line' => $lineNum,
+                    'error' => $e->getMessage(),
+                ]);
+                $errors[] = "سطر {$lineNum}: تعذّر استيراد بيانات المالك";
+                $skipped++;
+                if (count($errors) >= 10) {
+                    break;
+                }
+            }
+        }
+
+        fclose($handle);
+
+        return response()->json([
+            'message' => "تم استيراد {$created} مالك بنجاح",
+            'created' => $created,
+            'skipped' => $skipped,
+            'errors'  => $errors,
+        ]);
+    }
+
+    private function cleanHeader(string $header): string
+    {
+        return trim(str_replace("\xEF\xBB\xBF", '', $header));
+    }
+
+    private function isEmptyCsvRow(array $row): bool
+    {
+        foreach ($row as $value) {
+            if (trim((string) $value) !== '') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function validateOwnerImportRow(array $data): array
+    {
+        $errors = [];
+
+        if (($data['full_name'] ?? '') === '') {
+            $errors[] = 'اسم المالك مطلوب';
+        }
+
+        if (($data['national_id'] ?? '') === '') {
+            $errors[] = 'رقم الهوية مطلوب';
+        } elseif (!preg_match('/^\d{10}$/', (string) $data['national_id'])) {
+            $errors[] = 'رقم الهوية يجب أن يكون 10 أرقام';
+        }
+
+        if (($data['phone'] ?? '') !== '' && !preg_match('/^05\d{8}$/', (string) $data['phone'])) {
+            $errors[] = 'رقم الجوال يجب أن يكون 10 أرقام ويبدأ بـ 05';
+        }
+
+        if (($data['email'] ?? '') !== '' && !filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
+            $errors[] = 'البريد الإلكتروني غير صحيح';
+        }
+
+        if (($data['status'] ?? '') !== '' && $this->normalizeOwnerStatus($data['status']) === null) {
+            $errors[] = 'الحالة يجب أن تكون نشط أو متوقف';
+        }
+
+        return $errors;
+    }
+
+    private function normalizeOwnerStatus(?string $status): ?string
+    {
+        $status = trim((string) $status);
+        if ($status === '') {
+            return 'active';
+        }
+
+        return match (mb_strtolower($status)) {
+            'active', 'نشط' => 'active',
+            'inactive', 'متوقف', 'غير نشط' => 'inactive',
+            default => null,
+        };
     }
 }
