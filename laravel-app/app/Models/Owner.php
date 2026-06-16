@@ -65,10 +65,25 @@ class Owner extends Model
     {
         static::creating(function (Owner $owner) {
             if (empty($owner->account_number)) {
-                $last = static::query()->max('account_number');
-                $owner->account_number = $last ? ((int) $last + 1) : 100000;
+                $owner->account_number = static::nextAccountNumber();
             }
         });
+    }
+
+    private static function nextAccountNumber(): string
+    {
+        $last = static::withTrashed()
+            ->whereNotNull('account_number')
+            ->selectRaw('MAX(CAST(account_number AS UNSIGNED)) as max_account_number')
+            ->value('max_account_number');
+
+        $candidate = max(100000, ((int) $last) + 1);
+
+        while (static::withTrashed()->where('account_number', (string) $candidate)->exists()) {
+            $candidate++;
+        }
+
+        return (string) $candidate;
     }
 
     public function user(): BelongsTo
