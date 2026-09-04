@@ -5,12 +5,15 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Association;
+use App\Models\City;
+use App\Models\District;
 use App\Models\Invoice;
 use App\Models\Owner;
 use App\Models\Setting;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class AssociationController extends Controller
 {
@@ -74,6 +77,143 @@ class AssociationController extends Controller
         return $status !== 'draft';
     }
 
+    /**
+     * Keep the national-address names and their relational IDs in sync before
+     * validation. Older clients sent only the text fields, while newer clients
+     * use the city/district selectors as the canonical source.
+     */
+    private function normalizeLocationInput(Request $request, ?Association $association = null): void
+    {
+        $cityId = $request->input('city_id', $association?->city_id);
+        $districtId = $request->input('district_id', $association?->district_id);
+        $cityName = trim((string) $request->input('address_city_name', $association?->address_city_name));
+        $districtName = trim((string) $request->input('address_district', $association?->address_district));
+        $addressType = $request->input('address_type', $association?->address_type ?? 'full');
+
+        $city = $cityId ? City::find($cityId) : null;
+        if (!$city && $cityName !== '') {
+            $city = City::query()
+                ->where('name_ar', $cityName)
+                ->orWhere('name_en', $cityName)
+                ->first();
+        }
+
+        $district = $districtId ? District::find($districtId) : null;
+        if (!$district && $districtName !== '') {
+            $district = District::query()
+                ->when($city, fn ($query) => $query->where('city_id', $city->id))
+                ->where(function ($query) use ($districtName) {
+                    $query->where('name_ar', $districtName)
+                        ->orWhere('name_en', $districtName);
+                })
+                ->first();
+        }
+
+        $normalized = [];
+        if ($city) {
+            $normalized['city_id'] = $city->id;
+            if ($addressType === 'full') {
+                $normalized['address_city_name'] = $city->name_ar ?: $city->name_en;
+            }
+        }
+        if ($district) {
+            $normalized['district_id'] = $district->id;
+            if ($addressType === 'full') {
+                $normalized['address_district'] = $district->name_ar ?: $district->name_en;
+            }
+        }
+        if ($request->has('email')) {
+            $email = trim((string) $request->input('email'));
+            $normalized['email'] = $email === '' ? null : $email;
+        }
+        if ($request->has('phone')) {
+            $phone = trim((string) $request->input('phone'));
+            $normalized['phone'] = $phone === '' ? null : $phone;
+        }
+
+        if ($normalized) {
+            $request->merge($normalized);
+        }
+    }
+
+    /**
+     * Persist one canonical representation for relational location, national
+     * address, and the legacy city/address columns still used by older clients.
+     */
+    private function canonicalizeLocationData(array $data, ?Association $association = null): array
+    {
+        $existing = $association?->only([
+            'has_national_address', 'address_type', 'address_short_code',
+            'address_region', 'address_city_name', 'address_district',
+            'address_street', 'address_building_no', 'address_additional_no',
+            'address_postal_code', 'address_unit_no', 'city_id', 'district_id',
+        ]) ?? [];
+        $effective = array_merge($existing, $data);
+
+        $city = !empty($effective['city_id']) ? City::find($effective['city_id']) : null;
+        $district = !empty($effective['district_id']) ? District::find($effective['district_id']) : null;
+
+        if ($city) {
+            $data['city_id'] = $city->id;
+            $data['city'] = $city->name_ar ?: $city->name_en;
+        }
+
+        $hasNationalAddress = (bool) ($effective['has_national_address'] ?? false);
+        if (!$hasNationalAddress) {
+            foreach ([
+                'address_short_code', 'address_region', 'address_city_name',
+                'address_district', 'address_street', 'address_building_no',
+                'address_additional_no', 'address_postal_code', 'address_unit_no',
+            ] as $field) {
+                $data[$field] = null;
+            }
+            $data['address_type'] = 'full';
+            $data['address'] = null;
+
+            return $data;
+        }
+
+        $addressType = ($effective['address_type'] ?? 'full') === 'short' ? 'short' : 'full';
+        $data['address_type'] = $addressType;
+
+        if ($addressType === 'short') {
+            foreach ([
+                'address_region', 'address_city_name', 'address_district',
+                'address_street', 'address_building_no', 'address_additional_no',
+                'address_postal_code', 'address_unit_no',
+            ] as $field) {
+                $data[$field] = null;
+            }
+            $data['address'] = $effective['address_short_code'] ?: null;
+
+            return $data;
+        }
+
+        $data['address_short_code'] = null;
+        if ($city) {
+            $data['address_city_name'] = $city->name_ar ?: $city->name_en;
+        }
+        if ($district) {
+            $data['district_id'] = $district->id;
+            $data['address_district'] = $district->name_ar ?: $district->name_en;
+        }
+
+        $effective = array_merge($effective, $data);
+        $parts = array_filter([
+            $effective['address_region'] ?? null,
+            $effective['address_city_name'] ?? null,
+            $effective['address_district'] ?? null,
+            $effective['address_street'] ?? null,
+            $effective['address_building_no'] ?? null,
+            $effective['address_additional_no'] ?? null,
+            $effective['address_postal_code'] ?? null,
+            $effective['address_unit_no'] ?? null,
+        ], fn ($part) => $part !== null && $part !== '');
+        $data['address'] = $parts ? implode('، ', $parts) : null;
+
+        return $data;
+    }
+
     private function validationRules(Request $request, bool $isUpdate = false, ?Association $association = null): array
     {
         $nationalAddressRequired = $this->nationalAddressRequired($request, $association);
@@ -83,6 +223,8 @@ class AssociationController extends Controller
             : ['nullable', 'boolean'];
         $fullAddressRequired = $nationalAddressRequired && $addressType !== 'short';
         $shortAddressRequired = $nationalAddressRequired && $addressType === 'short';
+        $locationRequired = $nationalAddressRequired ? 'required' : 'nullable';
+        $cityId = $request->input('city_id', $association?->city_id);
 
         return [
             'name'                => [$isUpdate ? 'sometimes' : ($request->input('status') === 'draft' ? 'nullable' : 'required'), 'string', 'max:255'],
@@ -97,10 +239,16 @@ class AssociationController extends Controller
             'establishment_number'=> ['nullable', 'string', 'max:255'],
             'status'              => ['nullable', 'string', 'in:active,inactive,draft'],
             'management_model'    => ['nullable', 'string', 'max:255'],
+            'phone'               => ['nullable', 'string', 'max:50'],
+            'email'               => ['nullable', 'email', 'max:255'],
             'latitude'            => ['nullable', 'numeric'],
             'longitude'           => ['nullable', 'numeric'],
-            'city_id'             => ['nullable', 'integer', 'exists:cities,id'],
-            'district_id'         => ['nullable', 'integer', 'exists:districts,id'],
+            'city_id'             => [$locationRequired, 'integer', 'exists:cities,id'],
+            'district_id'         => [
+                $locationRequired,
+                'integer',
+                Rule::exists('districts', 'id')->where(fn ($query) => $query->where('city_id', $cityId)),
+            ],
             'manager_id'          => ['nullable', 'integer', 'exists:association_managers,id'],
             'manager_start_date'  => ['nullable', 'date'],
             'manager_end_date'    => ['nullable', 'date'],
@@ -131,8 +279,13 @@ class AssociationController extends Controller
             'logo.image'             => 'الشعار يجب أن يكون صورة',
             'logo.max'               => 'حجم الشعار يجب ألا يتجاوز 2 ميجابايت',
             'status.in'              => 'الحالة غير صالحة',
+            'phone.max'              => 'رقم الجوال يجب ألا يتجاوز 50 حرفاً',
+            'email.email'            => 'صيغة البريد الإلكتروني غير صحيحة',
+            'email.max'              => 'البريد الإلكتروني يجب ألا يتجاوز 255 حرفاً',
+            'city_id.required'       => 'المدينة مطلوبة ضمن العنوان الوطني',
             'city_id.exists'         => 'المدينة المحددة غير موجودة',
-            'district_id.exists'     => 'الحي المحدد غير موجود',
+            'district_id.required'   => 'الحي مطلوب ضمن العنوان الوطني',
+            'district_id.exists'     => 'الحي المحدد لا يتبع المدينة المختارة أو غير موجود',
             'manager_id.exists'      => 'الرئيس المحدد غير موجود',
             'manager_salary.numeric' => 'الأجر يجب أن يكون رقماً',
             'manager_salary.min'     => 'الأجر يجب أن يكون أكبر من أو يساوي صفر',
@@ -167,13 +320,9 @@ class AssociationController extends Controller
     public function store(Request $request): JsonResponse
     {
         $this->castBooleans($request);
+        $this->normalizeLocationInput($request);
         $data = $request->validate($this->validationRules($request), self::arMessages());
-
-        if (empty($data['has_national_address'])) {
-            $addressFields = ['address_type','address_short_code','address_region','address_city_name','address_district','address_street','address_building_no','address_additional_no','address_postal_code','address_unit_no'];
-            foreach ($addressFields as $f) { $data[$f] = null; }
-            $data['address_type'] = 'full';
-        }
+        $data = $this->canonicalizeLocationData($data);
 
         $logoPath = $this->handleLogo($request);
         if ($logoPath) {
@@ -331,13 +480,9 @@ class AssociationController extends Controller
     {
         $association = Association::findOrFail($id);
         $this->castBooleans($request);
+        $this->normalizeLocationInput($request, $association);
         $data = $request->validate($this->validationRules($request, true, $association), self::arMessages());
-
-        if (empty($data['has_national_address'])) {
-            $addressFields = ['address_type','address_short_code','address_region','address_city_name','address_district','address_street','address_building_no','address_additional_no','address_postal_code','address_unit_no'];
-            foreach ($addressFields as $f) { $data[$f] = null; }
-            $data['address_type'] = 'full';
-        }
+        $data = $this->canonicalizeLocationData($data, $association);
 
         $logoPath = $this->handleLogo($request, $association);
         if ($logoPath) {

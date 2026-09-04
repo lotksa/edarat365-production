@@ -22,6 +22,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 
 class PropertyController extends Controller
 {
@@ -79,15 +80,6 @@ class PropertyController extends Controller
         return $value === null || $value === '';
     }
 
-    private function shouldApplyAssociationDefault(array $data, string $field, ?Property $property): bool
-    {
-        if (array_key_exists($field, $data)) {
-            return $this->isBlank($data[$field]);
-        }
-
-        return $property ? $this->isBlank($property->{$field}) : true;
-    }
-
     private function associationAddressText(Association $association): ?string
     {
         if ($association->address_type === 'short' && $association->address_short_code) {
@@ -114,33 +106,56 @@ class PropertyController extends Controller
     {
         $associationId = $data['association_id'] ?? $property?->association_id;
         if (!$associationId) {
+            $effectiveStatus = $data['status'] ?? $property?->status ?? 'active';
+            if ($effectiveStatus !== 'draft') {
+                throw ValidationException::withMessages([
+                    'association_id' => 'اختيار الجمعية إلزامي لاعتماد موقع العقار تلقائيًا.',
+                ]);
+            }
+
             return $data;
         }
 
         $association = Association::with(['city', 'district'])->find($associationId);
-        if (!$association || !$association->has_national_address) {
-            return $data;
+        if (!$association) {
+            throw ValidationException::withMessages([
+                'association_id' => 'الجمعية المحددة غير موجودة أو غير متاحة.',
+            ]);
         }
 
-        if ($association->city_id && $this->shouldApplyAssociationDefault($data, 'city_id', $property)) {
-            $data['city_id'] = $association->city_id;
+        if (
+            !$association->city_id
+            || !$association->district_id
+            || $this->isBlank($association->latitude)
+            || $this->isBlank($association->longitude)
+        ) {
+            throw ValidationException::withMessages([
+                'association_id' => 'يجب تعريف المدينة والحي وإحداثيات الخريطة في بيانات الجمعية قبل إنشاء أو تحديث العقار.',
+            ]);
         }
 
-        if ($association->district_id && $this->shouldApplyAssociationDefault($data, 'district_id', $property)) {
-            $data['district_id'] = $association->district_id;
-        }
+        // The association is the canonical source for a property's complete
+        // location. Never trust duplicate client-side location values.
+        $data['city_id'] = $association->city_id;
+        $data['district_id'] = $association->district_id;
+        $data['latitude'] = $association->latitude;
+        $data['longitude'] = $association->longitude;
 
-        $cityName = $association->address_city_name ?: ($association->city?->name_ar ?: $association->city?->name_en);
-        if ($cityName && $this->shouldApplyAssociationDefault($data, 'city', $property)) {
+        // `associations` still has a legacy `city` attribute, so access the
+        // eagerly-loaded relation explicitly to avoid that column masking it.
+        $cityRelation = $association->getRelation('city');
+        $districtRelation = $association->getRelation('district');
+        $cityName = $association->address_city_name ?: ($cityRelation?->name_ar ?: $cityRelation?->name_en);
+        if ($cityName) {
             $data['city'] = $cityName;
         }
 
-        $districtName = $association->address_district ?: ($association->district?->name_ar ?: $association->district?->name_en);
-        if ($districtName && $this->shouldApplyAssociationDefault($data, 'district', $property)) {
+        $districtName = $association->address_district ?: ($districtRelation?->name_ar ?: $districtRelation?->name_en);
+        if ($districtName) {
             $data['district'] = $districtName;
         }
 
-        if ($this->shouldApplyAssociationDefault($data, 'address', $property)) {
+        if ($association->has_national_address) {
             $address = $this->associationAddressText($association);
             if ($address) {
                 $data['address'] = $address;

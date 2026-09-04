@@ -325,14 +325,21 @@ class AuthController extends Controller
             'purpose' => $purpose,
         ], $user, $identifier, null, $request);
 
-        return response()->json([
+        $response = [
             'message'           => 'Verification code sent',
             'channel'           => $channel,
             'purpose'           => $purpose,
             'masked_identifier' => $this->maskIdentifier($identifier, $channel),
             'expires_in_seconds' => 600,
             'delivered'         => $delivery['sent'] ?? false,
-        ]);
+        ];
+
+        $previewCode = $this->otp->previewCode($otp);
+        if ($previewCode !== null) {
+            $response['otp_preview'] = $previewCode;
+        }
+
+        return response()->json($response);
     }
 
     public function verifyOtp(Request $request): JsonResponse

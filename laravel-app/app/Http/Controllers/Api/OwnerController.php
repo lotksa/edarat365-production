@@ -6,10 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Invoice;
 use App\Models\Owner;
+use App\Models\Property;
 use App\Models\Setting;
 use App\Services\Notifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -87,6 +89,65 @@ class OwnerController extends Controller
         ];
     }
 
+    private function applyPropertyAddressDefaults(array $data): array
+    {
+        $propertyId = $data['property_id'] ?? null;
+        unset($data['property_id']);
+
+        if (!$propertyId) {
+            return $data;
+        }
+
+        $property = Property::with([
+            'association.city',
+            'association.district',
+            'cityRelation',
+            'districtRelation',
+        ])->find($propertyId);
+        $association = $property?->association;
+
+        if (!$association || !$association->has_national_address) {
+            return $data;
+        }
+
+        $cityRelation = $association->getRelation('city');
+        $districtRelation = $association->getRelation('district');
+        $addressType = $association->address_type === 'short' ? 'short' : 'full';
+        $cityName = $association->address_city_name ?: ($cityRelation?->name_ar ?: $property->cityRelation?->name_ar);
+        $districtName = $association->address_district ?: ($districtRelation?->name_ar ?: $property->districtRelation?->name_ar);
+
+        $addressIsComplete = $addressType === 'short'
+            ? !empty($association->address_short_code)
+            : !empty($association->address_region)
+                && !empty($cityName)
+                && !empty($districtName)
+                && !empty($association->address_street)
+                && !empty($association->address_building_no)
+                && !empty($association->address_postal_code);
+
+        if (!$addressIsComplete) {
+            return $data;
+        }
+
+        $defaults = [
+            'has_national_address' => true,
+            'address_type' => $addressType,
+            'address_short_code' => $addressType === 'short' ? $association->address_short_code : null,
+            'address_region' => $addressType === 'full' ? $association->address_region : null,
+            'address_city' => $addressType === 'full' ? $cityName : null,
+            'address_district' => $addressType === 'full' ? $districtName : null,
+            'address_street' => $addressType === 'full' ? $association->address_street : null,
+            'address_building_no' => $addressType === 'full' ? $association->address_building_no : null,
+            'address_additional_no' => $addressType === 'full' ? $association->address_additional_no : null,
+            'address_postal_code' => $addressType === 'full' ? $association->address_postal_code : null,
+            'address_unit_no' => $addressType === 'full' ? $association->address_unit_no : null,
+        ];
+
+        // A new owner created from inside a property always uses the
+        // association's canonical address, regardless of duplicate client data.
+        return array_merge($data, $defaults);
+    }
+
     private function handleAvatar(Request $request, ?Owner $existing = null): ?string
     {
         if ($request->hasFile('avatar')) {
@@ -100,6 +161,21 @@ class OwnerController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        $request->validate([
+            'property_id' => ['nullable', 'integer', 'exists:properties,id'],
+        ]);
+        $propertyId = $request->filled('property_id')
+            ? (int) $request->input('property_id')
+            : null;
+        $propertyAddress = $this->applyPropertyAddressDefaults([
+            'property_id' => $propertyId,
+        ]);
+        if ($propertyAddress) {
+            // Merge before the main validation so a property-scoped request
+            // does not need to repeat any required national-address fields.
+            $request->merge($propertyAddress);
+        }
+
         $nationalId = $request->input('national_id');
 
         $trashed = Owner::onlyTrashed()->where('national_id_hash', Owner::blindHash((string) $nationalId))->first();
@@ -117,6 +193,18 @@ class OwnerController extends Controller
             if ($avatarPath) $updateData['avatar'] = $avatarPath;
             $trashed->update($updateData);
 
+            if ($propertyId) {
+                $trashed->properties()->syncWithoutDetaching([$propertyId]);
+                ActivityLog::record(
+                    'property',
+                    $propertyId,
+                    'owner_attached',
+                    'تم ربط المالك المعاد تفعيله بالعقار تلقائيًا',
+                    null,
+                    ['owner_id' => $trashed->id]
+                );
+            }
+
             ActivityLog::record('owner', $trashed->id, 'restored',
                 'تم إعادة تفعيل حساب المالك (كان محذوفاً مسبقاً)',
                 null, ['restored_from' => $oldAccountId]
@@ -124,7 +212,12 @@ class OwnerController extends Controller
 
             return response()->json([
                 'message'  => 'تم إعادة تفعيل حساب المالك بنجاح (حساب سابق)',
-                'data'     => $trashed->fresh(),
+                'data'     => $trashed->fresh()->load([
+                    'properties.association.city',
+                    'properties.association.district',
+                    'properties.cityRelation',
+                    'properties.districtRelation',
+                ]),
                 'restored' => true,
             ], 200);
         }
@@ -138,6 +231,7 @@ class OwnerController extends Controller
             'phone'       => ['nullable', 'string', 'size:10', 'regex:/^05\d{8}$/'],
             'email'       => ['nullable', 'email', 'max:255'],
             'avatar'      => ['nullable', 'image', 'max:2048'],
+            'property_id' => ['nullable', 'integer', 'exists:properties,id'],
         ], $this->addressRules());
 
         if ($addressRequired) {
@@ -158,6 +252,7 @@ class OwnerController extends Controller
         $avatarPath = $this->handleAvatar($request);
         if ($avatarPath) $data['avatar'] = $avatarPath;
 
+        $data = $this->applyPropertyAddressDefaults($data);
         $data['status'] = 'active';
         if (!($data['has_national_address'] ?? false)) {
             $data = array_merge($data, [
@@ -168,9 +263,25 @@ class OwnerController extends Controller
                 'address_postal_code' => null, 'address_unit_no' => null,
             ]);
         }
-        $owner = Owner::create($data);
+        $owner = DB::transaction(function () use ($data, $propertyId) {
+            $owner = Owner::create($data);
 
-        ActivityLog::record('owner', $owner->id, 'created', 'تم إنشاء حساب مالك جديد');
+            ActivityLog::record('owner', $owner->id, 'created', 'تم إنشاء حساب مالك جديد');
+
+            if ($propertyId) {
+                $owner->properties()->syncWithoutDetaching([$propertyId]);
+                ActivityLog::record(
+                    'property',
+                    $propertyId,
+                    'owner_attached',
+                    'تم إنشاء المالك وربطه بالعقار تلقائيًا',
+                    null,
+                    ['owner_id' => $owner->id]
+                );
+            }
+
+            return $owner;
+        });
 
         Notifier::dispatch('owner.created', [
             'subject' => $owner,
@@ -179,13 +290,20 @@ class OwnerController extends Controller
 
         return response()->json([
             'message' => 'تم إضافة المالك بنجاح',
-            'data'    => $owner,
+            'data'    => $owner->load([
+                'properties.association.city',
+                'properties.association.district',
+                'properties.cityRelation',
+                'properties.districtRelation',
+            ]),
         ], 201);
     }
 
     public function show(int $id): JsonResponse
     {
         $owner = Owner::with([
+            'properties.association.city', 'properties.association.district',
+            'properties.cityRelation', 'properties.districtRelation',
             'units.property', 'units.images',
             'invoices', 'contracts', 'maintenanceRequests', 'bookings',
             'vehicles.parkingSpot', 'transactions', 'vouchers',

@@ -114,4 +114,18 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Local OTP Preview
+    |--------------------------------------------------------------------------
+    |
+    | This switch is intentionally disabled by default. The application also
+    | requires APP_ENV=local and APP_DEBUG=true before an OTP can be returned
+    | to the SPA, so production can never enable preview through this flag
+    | alone.
+    |
+    */
+
+    'otp_preview_enabled' => env('OTP_PREVIEW_ENABLED', false),
+
 ];

@@ -91,6 +91,24 @@ class OtpService
         return hash_equals($expected, $this->hashCode($candidate));
     }
 
+    /**
+     * Expose the generated code only to an explicitly enabled local debug
+     * environment. Requiring all three gates prevents a production config
+     * mistake from enabling OTP preview through a single setting.
+     */
+    public function previewCode(LoginOtp $otp): ?string
+    {
+        if (! app()->environment('local')
+            || ! config('app.debug')
+            || ! config('auth.otp_preview_enabled', false)) {
+            return null;
+        }
+
+        $code = (string) ($otp->getAttribute('plain_code') ?? '');
+
+        return preg_match('/^\d{6}$/', $code) === 1 ? $code : null;
+    }
+
     public function send(LoginOtp $otp, ?string $userName = null): array
     {
         $templates = Setting::getByKey('mail_templates', $this->defaultMailTemplates());
