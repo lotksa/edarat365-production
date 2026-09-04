@@ -78,7 +78,6 @@ deployment:
     - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan migrate --force || true
     # Re-encrypt legacy PII rows (idempotent: skips already-encrypted values).
     # Safe by design — only writes when a column was stored as plaintext.
-    - cd $LARAVEL_APP && /usr/local/bin/ea-php83 artisan encrypt:legacy-pii || true
     # PII / attachment cleanup commands run in DRY-RUN ONLY during deploy
     # so the log records what *would* be cleaned. To actually apply the
     # changes, an operator must run them manually over SSH:
