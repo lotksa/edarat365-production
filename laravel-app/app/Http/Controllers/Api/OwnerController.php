@@ -41,7 +41,7 @@ class OwnerController extends Controller
 
         if ($associationId = $request->query('association_id')) {
             $query->where(function ($q) use ($associationId) {
-                $q->whereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
+                $q->where('owners.association_id', $associationId)->orWhereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
                   ->orWhereHas('units.property', fn ($uq) => $uq->where('association_id', $associationId));
             });
         }
@@ -87,6 +87,27 @@ class OwnerController extends Controller
             'address_postal_code'  => ['nullable', 'string', 'max:10'],
             'address_unit_no'      => ['nullable', 'string', 'max:50'],
         ];
+    }
+
+    public function linkExisting(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'national_id' => ['required', 'string', 'regex:/^\d{10}$/'],
+            'property_id' => ['required', 'integer', 'exists:properties,id'],
+        ]);
+        $property = Property::findOrFail($data['property_id']);
+        // Exact-identity linking, never a global people search. Only the pivot
+        // is added; the shared profile and existing ownerships are unchanged.
+        $owner = Owner::withoutGlobalScope(\App\Scopes\AssociationScope::class)
+            ->where('national_id_hash', Owner::blindHash($data['national_id']))->first();
+        if (!$owner) {
+            return response()->json(['message' => 'لم نجد حساب مالك بهذه الهوية؛ يمكنك إنشاء مالك جديد'], 422);
+        }
+        DB::transaction(function () use ($owner, $property) {
+            $owner->properties()->syncWithoutDetaching([$property->id]);
+            ActivityLog::record('owner', $owner->id, 'linked_to_workspace', 'تم ربط مالك موجود بعقار الجمعية', null, ['property_id' => $property->id]);
+        });
+        return response()->json(['message' => 'تم ربط المالك مع الحفاظ على ملفه وارتباطاته الأخرى', 'data' => Owner::findOrFail($owner->id)]);
     }
 
     private function applyPropertyAddressDefaults(array $data): array

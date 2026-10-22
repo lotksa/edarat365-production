@@ -30,7 +30,7 @@ class Property extends Model
     {
         static::creating(function (Property $p) {
             if (empty($p->property_number)) {
-                $last = static::query()->orderByDesc('id')->value('id') ?? 0;
+                $last = static::withoutGlobalScope(\App\Scopes\AssociationScope::class)->orderByDesc('id')->value('id') ?? 0;
                 $p->property_number = 'PROP-' . str_pad($last + 1, 4, '0', STR_PAD_LEFT);
             }
         });

@@ -76,9 +76,31 @@ class NotificationController extends Controller
         $unread = (clone $query)->whereNull('read_at')->count();
 
         $items = $query->orderByDesc('created_at')
+            ->orderByDesc('id')
             ->limit($perPage)
             ->offset(($request->input('page', 1) - 1) * $perPage)
             ->get();
+
+        if (!app(\App\Services\AssociationContext::class)->id) {
+            // Old notifications predate association_id. Resolve their target
+            // for navigation without changing any stored notification or data.
+            $associationIds = \App\Models\Association::pluck('id');
+            foreach ($items as $item) {
+                if ($item->association_id || !$item->subject_id) continue;
+                $name = class_basename((string) $item->subject_type);
+                $name = ['invoice' => 'Invoice', 'owner' => 'Owner', 'unit' => 'Unit', 'property' => 'Property',
+                    'contract' => 'Contract', 'meeting' => 'Meeting', 'maintenance' => 'MaintenanceRequest',
+                    'legal_case' => 'LegalCase', 'vote' => 'Vote', 'facility' => 'Facility', 'booking' => 'Booking'][$name] ?? $name;
+                if (!in_array($name, \App\Scopes\AssociationScope::MODELS, true)) continue;
+                $class = 'App\\Models\\'.$name;
+                $matches = [];
+                foreach ($associationIds as $id) {
+                    $ids = app(\App\Scopes\AssociationScope::class)->ids((new $class)->getTable(), $id);
+                    if (\Illuminate\Support\Facades\DB::query()->fromSub($ids, 'notification_target')->where('id', $item->subject_id)->exists()) $matches[] = $id;
+                }
+                if (count($matches) === 1) $item->setAttribute('association_id', $matches[0]);
+            }
+        }
 
         return response()->json([
             'data'   => $items,

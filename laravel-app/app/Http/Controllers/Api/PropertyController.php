@@ -28,7 +28,7 @@ class PropertyController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $query = Property::with(['association', 'cityRelation', 'districtRelation']);
+        $query = Property::with(['association', 'cityRelation', 'districtRelation'])->withCount('units');
 
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
@@ -53,6 +53,7 @@ class PropertyController extends Controller
 
         $perPage = (int) $request->query('per_page', 15);
         $records = $query->latest('id')->paginate($perPage);
+        $records->getCollection()->each(fn ($property) => $property->setAttribute('total_units', $property->units_count));
 
         return response()->json([
             'data' => $records->items(),

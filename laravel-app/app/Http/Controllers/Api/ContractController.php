@@ -118,7 +118,7 @@ class ContractController extends Controller
             'contract_name.required'  => 'اسم العقد مطلوب',
         ]);
 
-        $data['contract_number'] = 'CTR-' . date('Y') . '-' . str_pad((Contract::max('id') ?? 0) + 1, 5, '0', STR_PAD_LEFT);
+        $data['contract_number'] = 'CTR-' . date('Y') . '-' . str_pad((Contract::withoutGlobalScope(\App\Scopes\AssociationScope::class)->max('id') ?? 0) + 1, 5, '0', STR_PAD_LEFT);
         $data['status'] = $data['status'] ?? 'active';
         $data = $this->normalizeAssociationScope($data);
 
@@ -279,7 +279,7 @@ class ContractController extends Controller
     {
         return Owner::whereKey($ownerId)
             ->where(function ($q) use ($associationId) {
-                $q->whereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
+                $q->where('owners.association_id', $associationId)->orWhereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
                   ->orWhereHas('units.property', fn ($uq) => $uq->where('association_id', $associationId));
             })
             ->exists();

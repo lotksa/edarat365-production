@@ -8,6 +8,9 @@ deployment:
     - >-
       /usr/local/bin/ea-php85 -r 'exit(PHP_VERSION_ID >= 80512 ? 0 : 1);'
     - if [ -e "$PUBLIC_HTML/storage" ] && [ ! -L "$PUBLIC_HTML/storage" ]; then echo 'Storage path must be a symlink; deployment stopped.'; exit 1; fi
+    # Keep API requests out of the copy/migration window: the workspace-aware
+    # frontend must never talk to an older, globally scoped backend.
+    - if [ -f "$LARAVEL_APP/artisan" ]; then cd $LARAVEL_APP && /usr/local/bin/ea-php85 artisan down --retry=15; fi
     - /bin/mkdir -p $LARAVEL_APP
     - /bin/mkdir -p $HOME/.deploy_backup
     - if [ -f "$LARAVEL_APP/.env" ]; then /bin/cp "$LARAVEL_APP/.env" "$HOME/.deploy_backup/.env"; fi
@@ -103,3 +106,5 @@ deployment:
     - /bin/mkdir -p $LARAVEL_APP/storage/app/public
     - if [ -L "$PUBLIC_HTML/storage" ]; then /bin/rm -f "$PUBLIC_HTML/storage"; fi
     - if [ ! -e "$PUBLIC_HTML/storage" ]; then /bin/ln -s $LARAVEL_APP/storage/app/public $PUBLIC_HTML/storage; fi
+    # Only reopen after code, additive migrations and the storage guard succeed.
+    - cd $LARAVEL_APP && /usr/local/bin/ea-php85 artisan up

@@ -83,7 +83,7 @@ class TransactionController extends Controller
             'transaction_date.required' => 'تاريخ الحركة مطلوب',
         ]);
 
-        $data['transaction_number'] = 'TRX-' . date('Y') . '-' . str_pad((Transaction::max('id') ?? 0) + 1, 5, '0', STR_PAD_LEFT);
+        $data['transaction_number'] = 'TRX-' . date('Y') . '-' . str_pad((Transaction::withoutGlobalScope(\App\Scopes\AssociationScope::class)->max('id') ?? 0) + 1, 5, '0', STR_PAD_LEFT);
         $data['status'] = $data['status'] ?? 'completed';
 
         $tx = Transaction::create($data);

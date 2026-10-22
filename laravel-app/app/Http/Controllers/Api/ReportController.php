@@ -285,11 +285,13 @@ class ReportController extends Controller
 
             $byProperty = collect();
             try {
-                if (Schema::hasTable('owner_unit')) {
+                if (Schema::hasTable('unit_owners')) {
                     $byProperty = DB::table('owners')
-                        ->join('owner_unit', 'owners.id', '=', 'owner_unit.owner_id')
-                        ->join('units', 'owner_unit.unit_id', '=', 'units.id')
+                        ->join('unit_owners', 'owners.id', '=', 'unit_owners.owner_id')
+                        ->join('units', 'unit_owners.unit_id', '=', 'units.id')
                         ->join('properties', 'units.property_id', '=', 'properties.id')
+                        ->when(app(\App\Services\AssociationContext::class)->id,
+                            fn ($q, $id) => $q->where('properties.association_id', $id))
                         ->select('properties.name', DB::raw('COUNT(DISTINCT owners.id) as cnt'))
                         ->groupBy('properties.name')
                         ->orderByDesc('cnt')

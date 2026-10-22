@@ -109,7 +109,7 @@ class LegalCaseController extends Controller
         ]);
 
         $data = $this->normalizeAssociationScope($data);
-        $data['case_number'] = 'CASE-' . date('Y') . '-' . str_pad((LegalCase::max('id') ?? 0) + 1, 5, '0', STR_PAD_LEFT);
+        $data['case_number'] = 'CASE-' . date('Y') . '-' . str_pad((LegalCase::withoutGlobalScope(\App\Scopes\AssociationScope::class)->max('id') ?? 0) + 1, 5, '0', STR_PAD_LEFT);
         $data['status'] = $data['status'] ?? 'open';
 
         $case = LegalCase::create($data);
@@ -329,7 +329,7 @@ class LegalCaseController extends Controller
     {
         return Owner::whereKey($ownerId)
             ->where(function ($q) use ($associationId) {
-                $q->whereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
+                $q->where('owners.association_id', $associationId)->orWhereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
                   ->orWhereHas('units.property', fn ($uq) => $uq->where('association_id', $associationId));
             })
             ->exists();

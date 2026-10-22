@@ -517,6 +517,7 @@ class AssociationController extends Controller
     public function destroy(int $id): JsonResponse
     {
         $association = Association::findOrFail($id);
+        $this->guardWorkspaceOrigins([$id]);
 
         $settings = Setting::getByKey('association_settings', []);
         $protectionEnabled = $settings['delete_protection'] ?? true;
@@ -547,8 +548,24 @@ class AssociationController extends Controller
             'ids'   => ['required', 'array', 'min:1'],
             'ids.*' => ['integer', 'exists:associations,id'],
         ]);
+        $this->guardWorkspaceOrigins($data['ids']);
+        if ((Setting::getByKey('association_settings', [])['delete_protection'] ?? true)
+            && \App\Models\Property::whereIn('association_id', $data['ids'])->exists()) {
+            return response()->json(['message' => 'لا يمكن حذف جمعيات تحتوي عقارات مرتبطة', 'protected' => true], 422);
+        }
         $count = Association::whereIn('id', $data['ids'])->delete();
         return response()->json(['message' => "تم حذف {$count} جمعيات بنجاح", 'count' => $count]);
+    }
+
+    private function guardWorkspaceOrigins(array $ids): void
+    {
+        foreach (['owners', 'tenants', 'association_managers', 'property_managers', 'legal_representatives', 'vouchers', 'approval_requests'] as $table) {
+            if (\Illuminate\Support\Facades\DB::table($table)->whereIn('association_id', $ids)->exists()) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'association' => 'الجمعية تحتوي سجلات مرتبطة؛ لا يمكن حذفها مع وجود هذه البيانات',
+                ]);
+            }
+        }
     }
 
     public function bulkUpdateStatus(Request $request): JsonResponse

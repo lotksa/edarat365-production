@@ -124,7 +124,7 @@ class MeetingController extends Controller
         );
 
         $data = $this->normalizeAssociationScope($data);
-        $data['meeting_number'] = 'MTG-' . date('Y') . '-' . str_pad((Meeting::max('id') ?? 0) + 1, 5, '0', STR_PAD_LEFT);
+        $data['meeting_number'] = 'MTG-' . date('Y') . '-' . str_pad((Meeting::withoutGlobalScope(\App\Scopes\AssociationScope::class)->max('id') ?? 0) + 1, 5, '0', STR_PAD_LEFT);
         $data['status'] = $data['status'] ?? 'scheduled';
 
         $data['invitees'] = $this->resolveInvitees($data);
@@ -229,7 +229,7 @@ class MeetingController extends Controller
         ]);
 
         $data['meeting_id'] = $meetingId;
-        $data['resolution_number'] = 'RES-' . date('Y') . '-' . str_pad((Resolution::max('id') ?? 0) + 1, 5, '0', STR_PAD_LEFT);
+        $data['resolution_number'] = 'RES-' . date('Y') . '-' . str_pad((Resolution::withoutGlobalScope(\App\Scopes\AssociationScope::class)->max('id') ?? 0) + 1, 5, '0', STR_PAD_LEFT);
         $data['status'] = $data['status'] ?? 'pending';
 
         $resolution = Resolution::create($data);
@@ -325,7 +325,7 @@ class MeetingController extends Controller
                 return $data['invitees'] ?? [];
             }
             return Owner::where(function ($q) use ($associationId) {
-                $q->whereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
+                $q->where('owners.association_id', $associationId)->orWhereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
                   ->orWhereHas('units.property', fn ($uq) => $uq->where('association_id', $associationId));
             })
                 ->pluck('id')
@@ -407,7 +407,7 @@ class MeetingController extends Controller
 
         $validCount = Owner::whereIn('id', $ownerIds)
             ->where(function ($q) use ($associationId) {
-                $q->whereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
+                $q->where('owners.association_id', $associationId)->orWhereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
                   ->orWhereHas('units.property', fn ($uq) => $uq->where('association_id', $associationId));
             })
             ->count();

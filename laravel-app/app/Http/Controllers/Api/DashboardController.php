@@ -31,12 +31,7 @@ class DashboardController extends Controller
             'active'   => Association::where('status', 'active')->count(),
             'inactive' => Association::where('status', 'inactive')->count(),
             'total_properties' => Property::whereNotNull('association_id')->count(),
-            'total_owners' => \DB::table('unit_owners')
-                ->join('units', 'unit_owners.unit_id', '=', 'units.id')
-                ->join('properties', 'units.property_id', '=', 'properties.id')
-                ->whereNotNull('properties.association_id')
-                ->distinct('unit_owners.owner_id')
-                ->count('unit_owners.owner_id'),
+            'total_owners' => Owner::count(),
         ];
 
         $properties = [
@@ -124,6 +119,21 @@ class DashboardController extends Controller
             ->limit(5)
             ->get();
 
+        $dues = Invoice::whereNull('cancelled_at')->whereNotIn('status', ['paid', 'cancelled', 'draft']);
+        $monthly = [];
+        for ($offset = 5; $offset >= 0; $offset--) {
+            $month = now()->startOfMonth()->subMonths($offset);
+            $monthly[] = ['month' => $month->format('Y-m'),
+                'issued' => (float) Invoice::whereNull('cancelled_at')->where('status', '!=', 'cancelled')
+                    ->whereBetween('created_at', [$month, $month->copy()->endOfMonth()])->sum('total_amount'),
+                'paid' => (float) Invoice::whereNull('cancelled_at')->where('status', 'paid')
+                    ->whereBetween('payment_date', [$month, $month->copy()->endOfMonth()])->sum('total_amount')];
+        }
+        $financial = ['outstanding' => (float) (clone $dues)->sum('total_amount'),
+            'unpaid_count' => (clone $dues)->count(), 'monthly' => $monthly];
+        $activities = \App\Models\ActivityLog::latest('id')->limit(5)
+            ->get(['id', 'description', 'action', 'performer', 'created_at']);
+
         return response()->json([
             'data' => [
                 'owners'              => $owners,
@@ -138,6 +148,8 @@ class DashboardController extends Controller
                 'bookings'            => $bookings,
                 'recent_maintenance'  => $recentMaintenance,
                 'recent_invoices'     => $recentInvoices,
+                'financial'           => $financial,
+                'activities'          => $activities,
             ],
         ]);
     }

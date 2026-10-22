@@ -58,6 +58,18 @@ class GlobalSearchController extends Controller
             ]);
         }
 
+        if (!app(\App\Services\AssociationContext::class)->id) {
+            abort_unless($request->user()->hasPermission('associations.view') || $request->user()->isSuperAdmin(), 403);
+            $matches = Association::where(fn ($w) => $w->where('name', 'like', "%{$q}%")
+                ->orWhere('name_en', 'like', "%{$q}%")->orWhere('association_number', 'like', "%{$q}%"))
+                ->limit(20)->get(['id', 'name', 'association_number', 'status']);
+            return response()->json(['query' => $q, 'total' => $matches->count(), 'ai_enabled' => false,
+                'groups' => [['type' => 'associations', 'label_ar' => 'الجمعيات', 'label_en' => 'Associations',
+                    'title_ar' => 'الجمعيات', 'title_en' => 'Associations', 'icon' => 'building', 'total' => $matches->count(),
+                    'items' => $matches->map(fn ($a) => ['id' => $a->id, 'title' => $a->name,
+                        'subtitle' => $a->association_number, 'url' => '/associations/'.$a->id, 'badge' => $a->status])]]]);
+        }
+
         $settings = Setting::getByKey('search_settings', [
             'sections' => [
                 'owners' => true, 'tenants' => true, 'users' => true,
@@ -99,7 +111,7 @@ class GlobalSearchController extends Controller
         }
 
         // ── Users (system accounts) ─────────────────────────────────────
-        if ($sections['users'] ?? true) {
+        if (!app(\App\Services\AssociationContext::class)->id && ($sections['users'] ?? true)) {
             $groups[] = $this->safeSection('users', 'المستخدمون', 'Users', 'user',
                 fn() => $this->searchUsers($q, $phoneVariants, $isEmailLike, $limit)
             );

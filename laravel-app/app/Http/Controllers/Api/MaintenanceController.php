@@ -291,7 +291,7 @@ class MaintenanceController extends Controller
     {
         return Owner::whereKey($ownerId)
             ->where(function ($q) use ($associationId) {
-                $q->whereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
+                $q->where('owners.association_id', $associationId)->orWhereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
                   ->orWhereHas('units.property', fn ($uq) => $uq->where('association_id', $associationId));
             })
             ->exists();

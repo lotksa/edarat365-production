@@ -11,7 +11,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->scoped(\App\Services\AssociationContext::class);
     }
 
     /**
@@ -19,6 +19,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        foreach (\App\Scopes\AssociationScope::MODELS as $name) {
+            $class = 'App\\Models\\'.$name;
+            $class::addGlobalScope(new \App\Scopes\AssociationScope);
+            $class::saving(fn ($model) => app(\App\Services\WorkspaceWrites::class)->prepare($model));
+        }
     }
 }

@@ -72,14 +72,14 @@ class Owner extends Model
 
     private static function nextAccountNumber(): string
     {
-        $last = static::withTrashed()
+        $last = static::withoutGlobalScope(\App\Scopes\AssociationScope::class)->withTrashed()
             ->whereNotNull('account_number')
             ->selectRaw('MAX(CAST(account_number AS UNSIGNED)) as max_account_number')
             ->value('max_account_number');
 
         $candidate = max(100000, ((int) $last) + 1);
 
-        while (static::withTrashed()->where('account_number', (string) $candidate)->exists()) {
+        while (static::withoutGlobalScope(\App\Scopes\AssociationScope::class)->withTrashed()->where('account_number', (string) $candidate)->exists()) {
             $candidate++;
         }
 

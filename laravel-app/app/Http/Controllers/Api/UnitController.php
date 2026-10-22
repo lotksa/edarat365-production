@@ -514,7 +514,7 @@ class UnitController extends Controller
                 $associationId = $unit->property->association_id;
                 $validCount = Owner::whereIn('id', $ownerIds)
                     ->where(function ($q) use ($associationId) {
-                        $q->whereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
+                        $q->where('owners.association_id', $associationId)->orWhereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
                           ->orWhereHas('units.property', fn ($uq) => $uq->where('association_id', $associationId));
                     })
                     ->count();

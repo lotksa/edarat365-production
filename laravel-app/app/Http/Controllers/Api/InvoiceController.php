@@ -405,7 +405,7 @@ class InvoiceController extends Controller
      */
     private function nextInvoiceNumber(): string
     {
-        $next = ((int) (Invoice::max('id') ?? 0)) + 1;
+        $next = ((int) (Invoice::withoutGlobalScope(\App\Scopes\AssociationScope::class)->max('id') ?? 0)) + 1;
         return 'INV-' . date('Y') . '-' . str_pad((string) $next, 5, '0', STR_PAD_LEFT);
     }
 
@@ -508,7 +508,7 @@ class InvoiceController extends Controller
         $belongs = Owner::query()
             ->whereKey($ownerId)
             ->where(function ($q) use ($associationId) {
-                $q->whereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
+                $q->where('owners.association_id', $associationId)->orWhereHas('properties', fn ($pq) => $pq->where('association_id', $associationId))
                   ->orWhereHas('units.property', fn ($uq) => $uq->where('association_id', $associationId));
             })
             ->exists();

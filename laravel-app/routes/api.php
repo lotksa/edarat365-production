@@ -73,7 +73,7 @@ Route::prefix('v1')->group(function () {
     // SECURITY: every authenticated request runs through `idle.timeout` after
     // Sanctum auth so a token that has been idle longer than the configured
     // window (default 30 min) is revoked server-side.
-    Route::middleware(['auth:sanctum', 'idle.timeout'])->group(function () {
+    Route::middleware(['auth:sanctum', 'idle.timeout', 'association.workspace'])->group(function () {
 
         // Account / session (any authenticated user)
         Route::post('/auth/logout', [AuthController::class, 'logout']);
@@ -86,6 +86,12 @@ Route::prefix('v1')->group(function () {
         Route::delete('/account/avatar', [AccountController::class, 'removeAvatar']);
 
         // Dashboard
+        Route::get('/workspace/overview', [\App\Http\Controllers\Api\WorkspaceController::class, 'overview'])
+            ->middleware('permission:associations.view');
+        Route::get('/workspace/unassigned', [\App\Http\Controllers\Api\WorkspaceController::class, 'unassigned'])
+            ->middleware('permission:settings.view');
+        Route::post('/workspace/unassigned/{module}/{id}/assign', [\App\Http\Controllers\Api\WorkspaceController::class, 'assign'])
+            ->middleware('permission:settings.update');
         Route::get('/dashboard', [DashboardController::class, 'index'])
             ->middleware('permission:dashboard.view');
 
@@ -176,6 +182,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/owners/{id}', [OwnerController::class, 'show']);
         });
         Route::post('/owners', [OwnerController::class, 'store'])->middleware('permission:owners.create');
+        Route::post('/owners/link-existing', [OwnerController::class, 'linkExisting'])->middleware('permission:owners.create');
         Route::post('/owners/import', [OwnerController::class, 'import'])->middleware('permission:owners.create');
         Route::post('/owners/bulk-delete', [OwnerController::class, 'bulkDelete'])->middleware('permission:owners.delete');
         Route::patch('/owners/{id}/toggle-status', [OwnerController::class, 'toggleStatus'])->middleware('permission:owners.update');

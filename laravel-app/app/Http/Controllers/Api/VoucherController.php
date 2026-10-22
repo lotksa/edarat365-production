@@ -83,7 +83,7 @@ class VoucherController extends Controller
         ]);
 
         $prefix = $data['type'] === 'receipt' ? 'RCV' : 'PMT';
-        $data['voucher_number'] = $prefix . '-' . date('Y') . '-' . str_pad((Voucher::max('id') ?? 0) + 1, 5, '0', STR_PAD_LEFT);
+        $data['voucher_number'] = $prefix . '-' . date('Y') . '-' . str_pad((Voucher::withoutGlobalScope(\App\Scopes\AssociationScope::class)->max('id') ?? 0) + 1, 5, '0', STR_PAD_LEFT);
         $data['created_by'] = auth()->id() ?? null;
 
         $voucher = Voucher::create($data);
