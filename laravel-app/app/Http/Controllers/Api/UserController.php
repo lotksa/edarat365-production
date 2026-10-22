@@ -11,6 +11,7 @@ use App\Services\Notifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class UserController extends Controller
@@ -359,6 +360,42 @@ class UserController extends Controller
             'message' => $user->is_active ? 'تم تفعيل المستخدم' : 'تم تعطيل المستخدم',
             'data'    => $user,
         ]);
+    }
+
+    public function bulkUpdateStatus(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1', 'max:100'],
+            'ids.*' => ['required', 'integer', 'distinct'],
+            'is_active' => ['required', 'boolean'],
+        ]);
+        $active = (bool) $data['is_active'];
+        $changed = DB::transaction(function () use ($data, $active) {
+            // Lock admins in a consistent order, including admins not selected,
+            // so two concurrent requests cannot disable the last active admin.
+            $admins = User::whereHas('userRole', fn ($q) => $q->where('key', 'super_admin'))
+                ->orderBy('id')->lockForUpdate()->get();
+            $users = User::with('userRole')->whereIn('id', $data['ids'])->orderBy('id')->lockForUpdate()->get();
+            abort_unless($users->count() === count($data['ids']), 422, 'بعض المستخدمين غير متاحين؛ حدّث القائمة');
+            if (! $active) {
+                abort_if($users->contains(fn ($user) => (int) $user->id === (int) auth()->id()), 422, 'لا يمكن إيقاف حسابك الحالي ضمن التحديد');
+                $remaining = $admins->filter(fn ($admin) => $admin->is_active && ! in_array($admin->id, $data['ids']))->count();
+                abort_if($admins->contains('is_active', true) && $remaining === 0, 422, 'يجب إبقاء مدير نظام نشط واحد على الأقل');
+            }
+            $changed = 0;
+            foreach ($users as $user) {
+                if ((bool) $user->is_active === $active) continue;
+                $user->is_active = $active;
+                $user->save();
+                if (! $active) $user->tokens()->delete();
+                ActivityLog::record('user', $user->id, 'status_changed', $active ? 'تم تفعيل المستخدم' : 'تم إيقاف المستخدم');
+                SecurityAuditLog::record('rbac.user.'.($active ? 'activated' : 'deactivated'), 'success', [], auth()->user(), null,
+                    ['type' => 'user', 'id' => $user->id]);
+                $changed++;
+            }
+            return $changed;
+        });
+        return response()->json(['message' => "تم تحديث حالة {$changed} مستخدم", 'changed' => $changed]);
     }
 
     public function bulkDelete(Request $request): JsonResponse

@@ -146,6 +146,8 @@ Route::prefix('v1')->group(function () {
             ->middleware('permission:users.delete');
         Route::post('/users/bulk-delete', [UserController::class, 'bulkDelete'])
             ->middleware('permission:users.delete');
+        Route::post('/users/bulk-status', [UserController::class, 'bulkUpdateStatus'])
+            ->middleware('permission:users.toggle_status');
         Route::patch('/users/{id}/toggle-status', [UserController::class, 'toggleStatus'])
             ->middleware('permission:users.toggle_status');
 
@@ -174,6 +176,9 @@ Route::prefix('v1')->group(function () {
             ->middleware('permission:roles.assign_permissions');
 
         // ── Owners ────────────────────────────────────────────────────────────
+        Route::get('/owners/import/template', [\App\Http\Controllers\Api\OwnerSpreadsheetController::class, 'template'])->middleware('permission:owners.create');
+        Route::post('/owners/import/preview', [\App\Http\Controllers\Api\OwnerSpreadsheetController::class, 'preview'])->middleware(['permission:owners.create', 'throttle:20,1']);
+        Route::post('/owners/import/commit', [\App\Http\Controllers\Api\OwnerSpreadsheetController::class, 'commit'])->middleware('permission:owners.create');
         Route::middleware('permission:owners.view')->group(function () {
             Route::get('/owners/stats', [OwnerController::class, 'stats']);
             Route::get('/owners/export', [OwnerController::class, 'export']);
@@ -185,6 +190,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/owners/link-existing', [OwnerController::class, 'linkExisting'])->middleware('permission:owners.create');
         Route::post('/owners/import', [OwnerController::class, 'import'])->middleware('permission:owners.create');
         Route::post('/owners/bulk-delete', [OwnerController::class, 'bulkDelete'])->middleware('permission:owners.delete');
+        Route::post('/owners/bulk-status', [OwnerController::class, 'bulkUpdateStatus'])->middleware('permission:owners.update');
         Route::patch('/owners/{id}/toggle-status', [OwnerController::class, 'toggleStatus'])->middleware('permission:owners.update');
         Route::put('/owners/{id}', [OwnerController::class, 'update'])->middleware('permission:owners.update');
         Route::delete('/owners/{id}', [OwnerController::class, 'destroy'])->middleware('permission:owners.delete');

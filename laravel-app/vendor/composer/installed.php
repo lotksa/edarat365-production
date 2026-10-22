@@ -526,6 +526,15 @@
             'aliases' => array(),
             'dev_requirement' => false,
         ),
+        'openspout/openspout' => array(
+            'pretty_version' => 'v5.12.2',
+            'version' => '5.12.2.0',
+            'reference' => '0fe609da95101d537411f4a978345f2f882eb935',
+            'type' => 'library',
+            'install_path' => __DIR__ . '/../openspout/openspout',
+            'aliases' => array(),
+            'dev_requirement' => false,
+        ),
         'phpoption/phpoption' => array(
             'pretty_version' => '1.10.0',
             'version' => '1.10.0.0',

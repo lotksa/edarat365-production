@@ -535,6 +535,32 @@ class OwnerController extends Controller
         ]);
     }
 
+    public function bulkUpdateStatus(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1', 'max:100'],
+            'ids.*' => ['required', 'integer', 'distinct'],
+            'status' => ['required', 'in:active,inactive'],
+        ]);
+        // The workspace middleware validates every ID and rejects shared people
+        // before this transaction. Never use an unscoped bulk update here.
+        $changed = DB::transaction(function () use ($data) {
+            $owners = Owner::whereIn('id', $data['ids'])->orderBy('id')->lockForUpdate()->get();
+            abort_unless($owners->count() === count($data['ids']), 422, 'بعض الملاك غير متاحين في الجمعية الحالية');
+            $changed = 0;
+            foreach ($owners as $owner) {
+                if ($owner->status === $data['status']) continue;
+                $old = $owner->status;
+                $owner->status = $data['status'];
+                $owner->save();
+                ActivityLog::record('owner', $owner->id, 'status_changed', 'تم تحديث حالة حساب المالك', ['status' => $old], ['status' => $owner->status]);
+                $changed++;
+            }
+            return $changed;
+        });
+        return response()->json(['message' => "تم تحديث حالة {$changed} مالك", 'changed' => $changed]);
+    }
+
     public function bulkDelete(Request $request): JsonResponse
     {
         $data = $request->validate([
