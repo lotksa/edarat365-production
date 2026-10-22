@@ -30,12 +30,15 @@ class LoginThrottle
         $decayMinutes = (int) $decay;
 
         $ip = $request->ip();
-        $identifier = strtolower(trim((string) (
+        $identifierValue = (
             $request->input('identifier')
                 ?? $request->input('email')
                 ?? $request->input('phone')
                 ?? ''
-        )));
+        );
+        // Keep malformed input intact for the controller's validation while
+        // still charging the IP bucket for every request.
+        $identifier = is_string($identifierValue) ? strtolower(trim($identifierValue)) : '';
 
         $ipKey = "throttle:{$key}:ip:" . sha1($ip);
         $idKey = "throttle:{$key}:id:" . sha1($identifier);
