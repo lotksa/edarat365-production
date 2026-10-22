@@ -103,7 +103,11 @@ final class WorkspaceController extends Controller
         foreach (array_keys(self::LEGACY) as $name) {
             $counts[$name] = $this->unassignedQuery($name)->count();
         }
-        $rows = $this->unassignedQuery($module)->orderBy('id')->paginate(20);
+        $query = $this->unassignedQuery($module);
+        if ($module === 'invoices') {
+            $query->with('owner:id,full_name,account_number');
+        }
+        $rows = $query->orderBy('id')->paginate(20);
 
         return response()->json(['data' => $rows->items(), 'counts' => $counts,
             'meta' => ['current_page' => $rows->currentPage(), 'last_page' => $rows->lastPage(), 'total' => $rows->total()]]);
