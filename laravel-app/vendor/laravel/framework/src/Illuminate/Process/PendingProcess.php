@@ -41,14 +41,14 @@ class PendingProcess
     /**
      * The maximum number of seconds the process may run.
      *
-     * @var int|null
+     * @var int|float|null
      */
     public $timeout = 60;
 
     /**
      * The maximum number of seconds the process may go without returning output.
      *
-     * @var int
+     * @var int|float|null
      */
     public $idleTimeout;
 
@@ -138,7 +138,7 @@ class PendingProcess
      */
     public function timeout(CarbonInterval|int $timeout)
     {
-        $this->timeout = $timeout instanceof CarbonInterval ? (int) $timeout->totalSeconds : $timeout;
+        $this->timeout = $timeout instanceof CarbonInterval ? $timeout->totalSeconds : $timeout;
 
         return $this;
     }
@@ -151,7 +151,7 @@ class PendingProcess
      */
     public function idleTimeout(CarbonInterval|int $timeout)
     {
-        $this->idleTimeout = $timeout instanceof CarbonInterval ? (int) $timeout->totalSeconds : $timeout;
+        $this->idleTimeout = $timeout instanceof CarbonInterval ? $timeout->totalSeconds : $timeout;
 
         return $this;
     }
@@ -244,7 +244,7 @@ class PendingProcess
      */
     public function run(array|string|null $command = null, ?callable $output = null)
     {
-        $this->command = $command ?: $this->command;
+        $this->command = $command ?? $this->command;
 
         $process = $this->toSymfonyProcess($command);
 
@@ -259,7 +259,7 @@ class PendingProcess
 
             return new ProcessResult(tap($process)->run($output));
         } catch (SymfonyTimeoutException $e) {
-            throw new ProcessTimedOutException($e, new ProcessResult($process));
+            throw ProcessTimedOutException::make($e, new ProcessResult($process));
         }
     }
 
@@ -274,7 +274,7 @@ class PendingProcess
      */
     public function start(array|string|null $command = null, ?callable $output = null)
     {
-        $this->command = $command ?: $this->command;
+        $this->command = $command ?? $this->command;
 
         $process = $this->toSymfonyProcess($command);
 
@@ -297,7 +297,7 @@ class PendingProcess
      */
     protected function toSymfonyProcess(array|string|null $command)
     {
-        $command = $command ?? $this->command;
+        $command ??= $this->command;
 
         $process = is_iterable($command)
             ? new Process($command, null, $this->environment)

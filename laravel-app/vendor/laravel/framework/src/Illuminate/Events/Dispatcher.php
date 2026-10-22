@@ -4,6 +4,7 @@ namespace Illuminate\Events;
 
 use Closure;
 use Exception;
+use Illuminate\Bus\DebounceLock;
 use Illuminate\Bus\UniqueLock;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Broadcasting\Factory as BroadcastFactory;
@@ -20,6 +21,9 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Queue\Attributes\Backoff;
 use Illuminate\Queue\Attributes\Connection;
+use Illuminate\Queue\Attributes\CountCrashesAsExceptions;
+use Illuminate\Queue\Attributes\DebounceFor;
+use Illuminate\Queue\Attributes\Delay;
 use Illuminate\Queue\Attributes\DeleteWhenMissingModels;
 use Illuminate\Queue\Attributes\FailOnTimeout;
 use Illuminate\Queue\Attributes\MaxExceptions;
@@ -34,7 +38,9 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Traits\Macroable;
 use Illuminate\Support\Traits\ReadsClassAttributes;
 use Illuminate\Support\Traits\ReflectsClosures;
+use LogicException;
 use ReflectionClass;
+use Throwable;
 
 use function Illuminate\Support\enum_value;
 
@@ -180,13 +186,7 @@ class Dispatcher implements DispatcherContract
      */
     public function hasWildcardListeners($eventName)
     {
-        foreach ($this->wildcards as $key => $listeners) {
-            if (Str::is($key, $eventName)) {
-                return true;
-            }
-        }
-
-        return false;
+        return array_any($this->wildcards, fn ($listeners, $key) => Str::is($key, $eventName));
     }
 
     /**
@@ -655,39 +655,65 @@ class Dispatcher implements DispatcherContract
      * @param  string  $method
      * @param  array  $arguments
      * @return void
+     *
+     * @throws \LogicException
      */
     protected function queueHandler($class, $method, $arguments)
     {
         [$listener, $job] = $this->createListenerAndJob($class, $method, $arguments);
+
+        $debounceFor = $this->getAttributeValue($listener, DebounceFor::class, 'debounceFor');
+
+        if (! is_null($debounceFor) && $job->shouldBeUnique) {
+            throw new LogicException('A debounced listener cannot also implement ShouldBeUnique.');
+        }
 
         if ($job->shouldBeUnique &&
             ! (new UniqueLock($this->container->make(Cache::class)))->acquire($job)) {
             return;
         }
 
-        $connectionName = method_exists($listener, 'viaConnection')
-            ? (isset($arguments[0]) ? $listener->viaConnection($arguments[0]) : $listener->viaConnection())
-            : $this->getAttributeValue($listener, Connection::class, 'connection');
+        try {
+            $connectionName = method_exists($listener, 'viaConnection')
+                ? (isset($arguments[0]) ? $listener->viaConnection($arguments[0]) : $listener->viaConnection())
+                : $this->getAttributeValue($listener, Connection::class, 'connection');
 
-        $connection = $this->resolveQueue()->connection(
-            $connectionName ?? $this->resolveConnectionFromQueueRoute($listener) ?? null
-        );
+            $connection = $this->resolveQueue()->connection(
+                $connectionName ?? $this->resolveConnectionFromQueueRoute($listener) ?? null
+            );
 
-        $queue = method_exists($listener, 'viaQueue')
-            ? (isset($arguments[0]) ? $listener->viaQueue($arguments[0]) : $listener->viaQueue())
-            : $this->getAttributeValue($listener, QueueAttribute::class, 'queue');
+            $queue = method_exists($listener, 'viaQueue')
+                ? (isset($arguments[0]) ? $listener->viaQueue($arguments[0]) : $listener->viaQueue())
+                : $this->getAttributeValue($listener, QueueAttribute::class, 'queue');
 
-        $delay = method_exists($listener, 'withDelay')
-            ? (isset($arguments[0]) ? $listener->withDelay($arguments[0]) : $listener->withDelay())
-            : $listener->delay ?? null;
+            $delay = method_exists($listener, 'withDelay')
+                ? (isset($arguments[0]) ? $listener->withDelay($arguments[0]) : $listener->withDelay())
+                : $this->getAttributeValue($listener, Delay::class, 'delay');
 
-        if (is_null($queue)) {
-            $queue = $this->resolveQueueFromQueueRoute($listener) ?? null;
+            if (is_null($queue)) {
+                $queue = $this->resolveQueueFromQueueRoute($listener) ?? null;
+            }
+
+            if (! is_null($debounceFor)) {
+                $debounce = (new DebounceLock($this->container->make(Cache::class)))->acquire(
+                    $job, $debounceFor, $this->getAttributeInstance($listener, DebounceFor::class)?->maxWait
+                );
+
+                $job->debounceOwner = $debounce['owner'];
+
+                $delay ??= $debounce['maxWaitExceeded'] ? 0 : $debounceFor;
+            }
+
+            is_null($delay)
+                ? $connection->pushOn(enum_value($queue), $job)
+                : $connection->laterOn(enum_value($queue), $delay, $job);
+        } catch (Throwable $e) {
+            if ($job->shouldBeUnique) {
+                (new UniqueLock($this->container->make(Cache::class)))->release($job);
+            }
+
+            throw $e;
         }
-
-        is_null($delay)
-            ? $connection->pushOn(enum_value($queue), $job)
-            : $connection->laterOn(enum_value($queue), $delay, $job);
     }
 
     /**
@@ -699,6 +725,8 @@ class Dispatcher implements DispatcherContract
      * @param  string  $method
      * @param  array  $arguments
      * @return array{TListener, mixed}
+     *
+     * @throws \ReflectionException
      */
     protected function createListenerAndJob($class, $method, $arguments)
     {
@@ -733,6 +761,7 @@ class Dispatcher implements DispatcherContract
             $job->shouldBeEncrypted = $listener instanceof ShouldBeEncrypted;
             $job->timeout = $this->getAttributeValue($listener, Timeout::class, 'timeout');
             $job->failOnTimeout = $this->getAttributeValue($listener, FailOnTimeout::class, 'failOnTimeout') ?? false;
+            $job->countCrashesAsExceptions = $this->getAttributeValue($listener, CountCrashesAsExceptions::class, 'countCrashesAsExceptions') ?? false;
             $job->deleteWhenMissingModels = $this->getAttributeValue($listener, DeleteWhenMissingModels::class, 'deleteWhenMissingModels') ?? false;
             $job->tries = method_exists($listener, 'tries') ? $listener->tries(...$data) : $this->getAttributeValue($listener, Tries::class, 'tries');
             $job->messageGroup = method_exists($listener, 'messageGroup') ? $listener->messageGroup(...$data) : ($listener->messageGroup ?? null);
@@ -757,6 +786,12 @@ class Dispatcher implements DispatcherContract
                 $job->uniqueFor = method_exists($listener, 'uniqueFor')
                     ? $listener->uniqueFor(...$data)
                     : ($this->getAttributeValue($listener, UniqueFor::class, 'uniqueFor') ?? 0);
+            }
+
+            if (! is_null($this->getAttributeValue($listener, DebounceFor::class, 'debounceFor'))) {
+                $job->debounceId = method_exists($listener, 'debounceId')
+                    ? $listener->debounceId(...$data)
+                    : ($listener->debounceId ?? null);
             }
         });
     }
@@ -891,7 +926,7 @@ class Dispatcher implements DispatcherContract
     /**
      * Gets the raw, unprepared listeners.
      *
-     * @return array
+     * @return array<string, callable|array|class-string|null>
      */
     public function getRawListeners()
     {

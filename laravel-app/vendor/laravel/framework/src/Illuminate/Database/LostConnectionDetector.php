@@ -48,7 +48,7 @@ class LostConnectionDetector implements LostConnectionDetectorContract
             'SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo failed: Try again',
             'SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo failed: Name or service not known',
             'SQLSTATE[HY000] [2002] php_network_getaddresses: getaddrinfo for',
-            'SQLSTATE[HY000]: General error: 7 SSL SYSCALL error: EOF detected',
+            'SSL SYSCALL error: EOF detected',
             'SSL error: unexpected eof',
             'SQLSTATE[HY000] [2002] Connection timed out',
             'SSL: Connection timed out',
@@ -66,6 +66,7 @@ class LostConnectionDetector implements LostConnectionDetectorContract
             'Unknown $curl_error_code: 77',
             'SSL: Handshake timed out',
             'SSL error: sslv3 alert unexpected message',
+            'SSL error: ssl/tls alert unexpected message',
             'unrecognized SSL error code:',
             'SQLSTATE[HY000] [1045] Access denied for user',
             'SQLSTATE[HY000] [2002] No connection could be made because the target machine actively refused it',
@@ -84,6 +85,7 @@ class LostConnectionDetector implements LostConnectionDetectorContract
             'Connection lost',
             'Broken pipe',
             'SQLSTATE[25006]: Read only sql transaction: 7',
+            'failed: Connection refused',
 
             // PlanetScale MySQL / Vitess related things...
             'vtgate connection error: no healthy endpoints',
