@@ -22,11 +22,14 @@ use App\Scopes\AssociationScope;
 use App\Services\AssociationContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\DashboardAnalytics;
+use Illuminate\Validation\Rule;
 
 final class WorkspaceController extends Controller
 {
-    public function overview(Request $request)
+    public function overview(Request $request, DashboardAnalytics $analyticsService)
     {
+        $period = $request->validate(['period' => ['sometimes', Rule::in(['all', '6', '12', '24'])]])['period'] ?? 'all';
         $context = app(AssociationContext::class);
         $rows = [];
         $attention = [];
@@ -39,9 +42,9 @@ final class WorkspaceController extends Controller
                 $row['properties_count'] = $request->user()->hasPermission('properties.view') ? $association->properties()->count() : null;
                 $row['units_count'] = $request->user()->hasPermission('units.view') ? Unit::count() : null;
                 $row['owners_count'] = $request->user()->hasPermission('owners.view') ? Owner::count() : null;
-                $unpaid = Invoice::whereNull('cancelled_at')->whereNotIn('status', ['paid', 'cancelled', 'draft']);
-                $row['unpaid_count'] = $request->user()->hasPermission('invoices.view') ? (clone $unpaid)->count() : null;
-                $row['unpaid_amount'] = $row['unpaid_count'] !== null ? (float) (clone $unpaid)->sum('total_amount') : null;
+                $row['financial'] = $analyticsService->can($request->user(), 'invoices.view') ? $analyticsService->financial((string) $period, false) : null;
+                $row['unpaid_count'] = $row['financial']['unpaid_count'] ?? null;
+                $row['unpaid_amount'] = $row['financial']['outstanding'] ?? null;
                 $rows[] = $row;
                 if ($association->status === 'draft') {
                     $attention[] = ['association_id' => $association->id, 'association_name' => $association->name,
@@ -68,9 +71,13 @@ final class WorkspaceController extends Controller
             $context->id = null;
         }
         usort($activities, fn ($a, $b) => strcmp($b['created_at'], $a['created_at']));
+        $analytics = $analyticsService->snapshot($request->user(), (string) $period);
+        if ($analytics['financial'] !== null) {
+            $analytics['unassigned'] = $analyticsService->unassignedFinancial(array_column($rows, 'id'));
+        }
 
         return response()->json(['data' => $rows, 'attention' => $attention,
-            'next_meeting' => $nextMeeting, 'activities' => array_slice($activities, 0, 6)]);
+            'next_meeting' => $nextMeeting, 'activities' => array_slice($activities, 0, 6), 'analytics' => $analytics]);
     }
 
     private const LEGACY = [

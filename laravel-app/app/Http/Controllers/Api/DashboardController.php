@@ -14,11 +14,15 @@ use App\Models\Property;
 use App\Models\Unit;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use App\Services\DashboardAnalytics;
 
 class DashboardController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request, DashboardAnalytics $analyticsService): JsonResponse
     {
+        $period = $request->validate(['period' => ['sometimes', Rule::in(['all', '6', '12', '24'])]])['period'] ?? 'all';
         $owners = [
             'total'    => Owner::count(),
             'active'   => Owner::where('status', 'active')->count(),
@@ -119,23 +123,13 @@ class DashboardController extends Controller
             ->limit(5)
             ->get();
 
-        $dues = Invoice::whereNull('cancelled_at')->whereNotIn('status', ['paid', 'cancelled', 'draft']);
-        $monthly = [];
-        for ($offset = 5; $offset >= 0; $offset--) {
-            $month = now()->startOfMonth()->subMonths($offset);
-            $monthly[] = ['month' => $month->format('Y-m'),
-                'issued' => (float) Invoice::whereNull('cancelled_at')->where('status', '!=', 'cancelled')
-                    ->whereBetween('created_at', [$month, $month->copy()->endOfMonth()])->sum('total_amount'),
-                'paid' => (float) Invoice::whereNull('cancelled_at')->where('status', 'paid')
-                    ->whereBetween('payment_date', [$month, $month->copy()->endOfMonth()])->sum('total_amount')];
-        }
-        $financial = ['outstanding' => (float) (clone $dues)->sum('total_amount'),
-            'unpaid_count' => (clone $dues)->count(), 'monthly' => $monthly];
-        $activities = \App\Models\ActivityLog::latest('id')->limit(5)
-            ->get(['id', 'description', 'action', 'performer', 'created_at']);
+        $analytics = $analyticsService->snapshot($request->user(), (string) $period);
+        $financial = $analytics['financial'];
+        $activities = $analyticsService->can($request->user(), 'activity_log.view')
+            ? \App\Models\ActivityLog::latest('id')->limit(5)->get(['id', 'description', 'action', 'performer', 'created_at']) : [];
 
         return response()->json([
-            'data' => [
+            'data' => array_filter([
                 'owners'              => $owners,
                 'associations'        => $associations,
                 'properties'          => $properties,
@@ -150,7 +144,18 @@ class DashboardController extends Controller
                 'recent_invoices'     => $recentInvoices,
                 'financial'           => $financial,
                 'activities'          => $activities,
-            ],
+                'analytics'           => $analytics,
+            ], function ($key) use ($analytics, $analyticsService, $request) {
+                if (isset(DashboardAnalytics::MODULES[$key])) {
+                    return isset($analytics['modules'][$key]);
+                }
+                return match ($key) {
+                    'associations' => $analyticsService->can($request->user(), 'associations.view'),
+                    'recent_invoices', 'financial' => $analytics['financial'] !== null,
+                    'recent_maintenance' => isset($analytics['modules']['maintenance']),
+                    default => true,
+                };
+            }, ARRAY_FILTER_USE_KEY),
         ]);
     }
 
