@@ -1,0 +1,8 @@
+# Merge into the EXISTING, verified domain .php-fpm.yaml as WHM root.
+# Preserve all other pool values. Rebuild the domain configuration and restart
+# the affected PHP-FPM workers, then verify the effective WEB SAPI setting.
+# This is not applied by .cpanel.yml, which runs as the unprivileged account.
+# https://www.php.net/archive/2026.php#2026-10-23-1
+php_admin_flag_session_upload_progress_enabled:
+  name: 'php_admin_flag[session.upload_progress.enabled]'
+  value: 'off'
