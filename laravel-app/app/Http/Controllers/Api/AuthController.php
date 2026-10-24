@@ -303,9 +303,9 @@ class AuthController extends Controller
         // account. 30s between requests for the same identifier.
         $cooldownKey = 'otp_cooldown:' . sha1($identifier . '|' . $purpose);
         if (cache()->has($cooldownKey)) {
+            // A newer consumed/expired challenge must not reopen an older code.
             $existingOtp = LoginOtp::where('identifier', $identifier)
-                ->where('purpose', $purpose)->whereNull('used_at')
-                ->where('expires_at', '>', now())->latest('id')->first();
+                ->where('purpose', $purpose)->latest('id')->first();
             SecurityAuditLog::record('auth.otp.requested', 'failed', [
                 'reason' => 'cooldown',
             ], $user, $identifier, null, $request);
@@ -348,7 +348,10 @@ class AuthController extends Controller
     private function otpTiming(?LoginOtp $otp): array
     {
         $serverTime = now();
-        $expiresAt = $otp?->expires_at ?? $serverTime;
+        $expiresAt = $otp?->expires_at;
+        if (!$expiresAt || $otp?->used_at !== null || $expiresAt->lessThanOrEqualTo($serverTime)) {
+            $expiresAt = $serverTime;
+        }
 
         return [
             'expires_in_seconds' => max(0, (int) ceil($serverTime->diffInSeconds($expiresAt, false))),
@@ -375,12 +378,10 @@ class AuthController extends Controller
         $otp = LoginOtp::query()
             ->where('identifier', $identifier)
             ->where('purpose', $purpose)
-            ->whereNull('used_at')
-            ->where('expires_at', '>', now())
             ->latest('id')
             ->first();
 
-        if (!$otp || !$user) {
+        if (!$otp || !$user || $otp->used_at !== null || !($otp->expires_at?->isFuture())) {
             $this->recordFailedAttempt($user, 'auth.otp.failed', $identifier);
             throw ValidationException::withMessages([
                 'code' => 'الرمز غير صحيح أو منتهي الصلاحية',

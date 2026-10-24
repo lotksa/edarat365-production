@@ -10,6 +10,7 @@ use App\Models\Property;
 use App\Models\Setting;
 use App\Models\Unit;
 use App\Services\Notifier;
+use App\Services\DashboardAnalytics;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -36,7 +37,19 @@ class InvoiceController extends Controller
             });
         }
 
-        if ($v = $request->query('status'))           $query->where('status', $v);
+        if ($v = $request->query('status')) {
+            if ($v === 'overdue') {
+                $query->whereNull('cancelled_at')
+                    ->whereIn('status', ['unpaid', 'pending', 'overdue'])
+                    ->whereDate('due_date', '<', today()->toDateString());
+            } elseif ($v === 'unpaid') {
+                $query->whereNull('cancelled_at')->whereIn('status', ['unpaid', 'pending', 'overdue']);
+            } elseif ($v === 'cancelled') {
+                $query->where(fn ($q) => $q->where('status', 'cancelled')->orWhereNotNull('cancelled_at'));
+            } else {
+                $query->whereNull('cancelled_at')->where('status', $v);
+            }
+        }
         if ($v = $request->query('invoice_type'))     $query->where('invoice_type', $v);
         if ($v = $request->query('association_id')) {
             $query->where(function ($q) use ($v) {
@@ -104,14 +117,17 @@ class InvoiceController extends Controller
         });
     }
 
-    public function stats(): JsonResponse
+    public function stats(DashboardAnalytics $analytics): JsonResponse
     {
+        // Use the dashboard's read-only balances so overdue counts follow
+        // the due date without rewriting invoice statuses or customer data.
+        $financial = $analytics->financial('all', false);
         return response()->json([
             'total'     => Invoice::count(),
-            'pending'   => Invoice::whereIn('status', ['pending', 'unpaid'])->count(),
-            'paid'      => Invoice::where('status', 'paid')->count(),
-            'overdue'   => Invoice::where('status', 'overdue')->count(),
-            'partial'   => Invoice::where('status', 'partial')->count(),
+            'pending'   => $financial['unpaid_count'],
+            'paid'      => $financial['paid_count'],
+            'overdue'   => $financial['overdue_count'],
+            'partial'   => $financial['partial_count'],
             'cancelled' => Invoice::whereNotNull('cancelled_at')->count(),
         ]);
     }

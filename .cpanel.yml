@@ -1,8 +1,7 @@
 ---
-# This release deploys only the OTP expiry response and its tested frontend.
-# Unexpected future backend/schema changes stop here; use a reviewed release
-# manifest for wider application updates. Fresh verified DB/uploads backups
-# and live-path checks remain mandatory before invoking cPanel deployment.
+# This release installs the reviewed login/invoice QA fixes only.
+# Wider releases require a new reviewed manifest. Verify live paths and fresh
+# database/uploads backups before invoking cPanel deployment.
 deployment:
   tasks:
     - export PUBLIC_HTML="$HOME/public_html"
@@ -10,20 +9,25 @@ deployment:
     - test -d "$PUBLIC_HTML/assets" && test -d "$LARAVEL_APP/app/Http/Controllers/Api" && test -s "$LARAVEL_APP/.env" || exit 1
     - test -L "$PUBLIC_HTML/storage" || exit 1
     - >-
-      git diff --quiet 3e9e3a6d032eb45b05f40a4eed361b7747e911a7 HEAD -- .
+      git diff --quiet a060f460da9ae7ddc60b61c675ee644ce6ea51fc HEAD -- .
       ':(exclude).cpanel.yml' ':(exclude)laravel-app/app/Http/Controllers/Api/AuthController.php'
+      ':(exclude)laravel-app/app/Http/Controllers/Api/InvoiceController.php'
       ':(exclude)public_html/index.html' ':(exclude)public_html/assets'
-      || { echo "Release contains paths outside the reviewed OTP scope."; exit 1; }
+      || { echo "Release contains paths outside the reviewed login/invoice scope."; exit 1; }
     - >-
       /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 -r 'exit(PHP_VERSION_ID >= 80512 ? 0 : 1);' || exit 1
     - /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 -l laravel-app/app/Http/Controllers/Api/AuthController.php || exit 1
-    # Publish the backwards-compatible API response before the new frontend.
-    - /usr/bin/install -m 644 laravel-app/app/Http/Controllers/Api/AuthController.php "$LARAVEL_APP/app/Http/Controllers/Api/.AuthController.php.otp-next" || exit 1
-    - /bin/mv -f "$LARAVEL_APP/app/Http/Controllers/Api/.AuthController.php.otp-next" "$LARAVEL_APP/app/Http/Controllers/Api/AuthController.php" || exit 1
+    - /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 -l laravel-app/app/Http/Controllers/Api/InvoiceController.php || exit 1
+    # Install only the two reviewed controllers; no migrations, cleanup or settings writes.
+    - /usr/bin/install -m 644 laravel-app/app/Http/Controllers/Api/AuthController.php "$LARAVEL_APP/app/Http/Controllers/Api/.AuthController.php.qa-next" || exit 1
+    - /bin/mv -f "$LARAVEL_APP/app/Http/Controllers/Api/.AuthController.php.qa-next" "$LARAVEL_APP/app/Http/Controllers/Api/AuthController.php" || exit 1
+    - /usr/bin/install -m 644 laravel-app/app/Http/Controllers/Api/InvoiceController.php "$LARAVEL_APP/app/Http/Controllers/Api/.InvoiceController.php.qa-next" || exit 1
+    - /bin/mv -f "$LARAVEL_APP/app/Http/Controllers/Api/.InvoiceController.php.qa-next" "$LARAVEL_APP/app/Http/Controllers/Api/InvoiceController.php" || exit 1
     # Existing hashed assets remain available to already-open browser tabs.
     - /bin/cp -R public_html/assets/. "$PUBLIC_HTML/assets/" || exit 1
-    - /usr/bin/install -m 644 public_html/index.html "$PUBLIC_HTML/.index-otp-next.html" || exit 1
-    - /bin/mv -f "$PUBLIC_HTML/.index-otp-next.html" "$PUBLIC_HTML/index.html" || exit 1
+    - /usr/bin/install -m 644 public_html/index.html "$PUBLIC_HTML/.index-qa-next.html" || exit 1
+    - /bin/mv -f "$PUBLIC_HTML/.index-qa-next.html" "$PUBLIC_HTML/index.html" || exit 1
     - cmp -s laravel-app/app/Http/Controllers/Api/AuthController.php "$LARAVEL_APP/app/Http/Controllers/Api/AuthController.php" || exit 1
+    - cmp -s laravel-app/app/Http/Controllers/Api/InvoiceController.php "$LARAVEL_APP/app/Http/Controllers/Api/InvoiceController.php" || exit 1
     - cmp -s public_html/index.html "$PUBLIC_HTML/index.html" || exit 1
-    - echo "OTP expiry release installed without database, settings, uploads, or storage-link changes."
+    - echo "Login/invoice QA release installed without database, settings, uploads, or storage-link changes."
