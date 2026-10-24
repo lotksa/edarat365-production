@@ -303,6 +303,9 @@ class AuthController extends Controller
         // account. 30s between requests for the same identifier.
         $cooldownKey = 'otp_cooldown:' . sha1($identifier . '|' . $purpose);
         if (cache()->has($cooldownKey)) {
+            $existingOtp = LoginOtp::where('identifier', $identifier)
+                ->where('purpose', $purpose)->whereNull('used_at')
+                ->where('expires_at', '>', now())->latest('id')->first();
             SecurityAuditLog::record('auth.otp.requested', 'failed', [
                 'reason' => 'cooldown',
             ], $user, $identifier, null, $request);
@@ -311,7 +314,7 @@ class AuthController extends Controller
                 'channel'           => $channel,
                 'purpose'           => $purpose,
                 'masked_identifier' => $this->maskIdentifier($identifier, $channel),
-                'expires_in_seconds' => 600,
+                ...$this->otpTiming($existingOtp),
                 'delivered'         => false,
             ]);
         }
@@ -330,7 +333,7 @@ class AuthController extends Controller
             'channel'           => $channel,
             'purpose'           => $purpose,
             'masked_identifier' => $this->maskIdentifier($identifier, $channel),
-            'expires_in_seconds' => 600,
+            ...$this->otpTiming($otp),
             'delivered'         => $delivery['sent'] ?? false,
         ];
 
@@ -340,6 +343,18 @@ class AuthController extends Controller
         }
 
         return response()->json($response);
+    }
+
+    private function otpTiming(?LoginOtp $otp): array
+    {
+        $serverTime = now();
+        $expiresAt = $otp?->expires_at ?? $serverTime;
+
+        return [
+            'expires_in_seconds' => max(0, (int) ceil($serverTime->diffInSeconds($expiresAt, false))),
+            'expires_at' => $expiresAt->toIso8601String(),
+            'server_time' => $serverTime->toIso8601String(),
+        ];
     }
 
     public function verifyOtp(Request $request): JsonResponse

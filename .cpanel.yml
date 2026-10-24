@@ -1,113 +1,29 @@
 ---
+# This release deploys only the OTP expiry response and its tested frontend.
+# Unexpected future backend/schema changes stop here; use a reviewed release
+# manifest for wider application updates. Fresh verified DB/uploads backups
+# and live-path checks remain mandatory before invoking cPanel deployment.
 deployment:
   tasks:
-    - export DEPLOYPATH=$HOME/
-    - export PUBLIC_HTML=$HOME/public_html/
-    - export LARAVEL_APP=$HOME/laravel-app/
-    # Web PHP must also disable session.upload_progress.enabled in the persistent
-    # domain FPM pool/global startup configuration; FPM .user.ini and application
-    # ini_set() are too late. CLI -d below covers deployment commands only.
-    # Reject an incompatible runtime or a real uploads directory before copying code.
+    - export PUBLIC_HTML="$HOME/public_html"
+    - export LARAVEL_APP="$HOME/laravel-app"
+    - test -d "$PUBLIC_HTML/assets" && test -d "$LARAVEL_APP/app/Http/Controllers/Api" && test -s "$LARAVEL_APP/.env" || exit 1
+    - test -L "$PUBLIC_HTML/storage" || exit 1
     - >-
-      /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 -r 'exit(PHP_VERSION_ID >= 80512 ? 0 : 1);'
-    - if [ -e "$PUBLIC_HTML/storage" ] && [ ! -L "$PUBLIC_HTML/storage" ]; then echo 'Storage path must be a symlink; deployment stopped.'; exit 1; fi
-    # Keep API requests out of the copy/migration window: the workspace-aware
-    # frontend must never talk to an older, globally scoped backend.
-    - if [ -f "$LARAVEL_APP/artisan" ]; then (cd "$LARAVEL_APP" && /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 artisan down --retry=15); fi
-    - /bin/mkdir -p $LARAVEL_APP
-    - /bin/mkdir -p $HOME/.deploy_backup
-    - if [ -f "$LARAVEL_APP/.env" ]; then /bin/cp "$LARAVEL_APP/.env" "$HOME/.deploy_backup/.env"; fi
-    - /bin/cp -R laravel-app/. $LARAVEL_APP
-    - if [ -f "$HOME/.deploy_backup/.env" ]; then /bin/cp "$HOME/.deploy_backup/.env" "$LARAVEL_APP/.env"; fi
-    - /bin/rm -f $LARAVEL_APP/.env.production
-    - /bin/cp -R public_html/. $PUBLIC_HTML
-    # SECURITY: tighten file permissions across the application tree.
-    # 644 for files, 755 for dirs is the recommended Laravel layout. We keep
-    # storage/ and bootstrap/cache writable by the PHP-FPM user — see notes below.
-    - /bin/find $LARAVEL_APP -type f -exec /bin/chmod 644 {} \; 2>/dev/null || true
-    - /bin/find $LARAVEL_APP -type d -exec /bin/chmod 755 {} \; 2>/dev/null || true
-    # .env contains DB credentials, APP_KEY and provider secrets.
-    # On THIS cPanel host PHP-FPM runs as `nobody`, NOT as the cPanel user, so
-    # chmod 600 makes .env unreadable to PHP and 500s every API request. We
-    # therefore use 0644 — HTTP access is already blocked by the
-    # `<FilesMatch "^\."> Require all denied` rule in public_html/.htaccess
-    # and the cPanel home directory itself is 0711 so other shared-server
-    # users still cannot list it.
-    - /bin/chmod 644 $LARAVEL_APP/.env 2>/dev/null || true
-    - /bin/chmod 644 $LARAVEL_APP/.env.production 2>/dev/null || true
-    - /bin/chmod 644 $LARAVEL_APP/.env.example 2>/dev/null || true
-    # Use database cache on cPanel to avoid file-cache ownership conflicts
-    # between SSH deploy commands and the PHP-FPM runtime user.
-    - if /bin/grep -q '^CACHE_STORE=' "$LARAVEL_APP/.env"; then /bin/sed -i 's/^CACHE_STORE=.*/CACHE_STORE=database/' "$LARAVEL_APP/.env"; else /usr/bin/printf '\nCACHE_STORE=database\n' >> "$LARAVEL_APP/.env"; fi
-    # PHP-FPM on this cPanel host runs as 'nobody', not as the cPanel user, so
-    # framework directories MUST be writable. The parent /home/USER is 711 (cPanel
-    # default), preventing 'nobody' from listing siblings.
-    # We use 775 with a setgid bit (g+s) when feasible; fall back to 777 ONLY
-    # if 775 doesn't satisfy 'nobody'. Most cPanel envs need 777 for these dirs.
-    - /bin/chmod -R 777 $LARAVEL_APP/storage 2>/dev/null || true
-    - /bin/chmod -R 777 $LARAVEL_APP/bootstrap/cache 2>/dev/null || true
-    # Make sure laravel.log exists and is writable by 'nobody'
-    - /bin/mkdir -p $LARAVEL_APP/storage/logs
-    - /bin/touch $LARAVEL_APP/storage/logs/laravel.log
-    - /bin/chmod 666 $LARAVEL_APP/storage/logs/laravel.log 2>/dev/null || true
-    # Ensure framework cache subdirectories are present so Laravel can stat() them
-    - /bin/mkdir -p $LARAVEL_APP/storage/framework/cache/data
-    - /bin/mkdir -p $LARAVEL_APP/storage/framework/sessions
-    - /bin/mkdir -p $LARAVEL_APP/storage/framework/views
-    - /bin/mkdir -p $LARAVEL_APP/storage/framework/testing
-    - /bin/chmod -R 777 $LARAVEL_APP/storage/framework 2>/dev/null || true
-    # Same rationale as .env: PHP-FPM runs as `nobody` so 0600 here would
-    # break composer autoloading at runtime. 0644 is HTTP-blocked by the
-    # FilesMatch rule in .htaccess and the parent dir is 0711.
-    - /bin/chmod 644 $LARAVEL_APP/composer.lock 2>/dev/null || true
-    - /bin/chmod 644 $LARAVEL_APP/storage/app/seeded-admin-credentials.txt 2>/dev/null || true
-    # Clear stale package/service cache that pins old middleware aliases
-    - /bin/rm -f $LARAVEL_APP/bootstrap/cache/services.php
-    - /bin/rm -f $LARAVEL_APP/bootstrap/cache/packages.php
-    - /bin/rm -f $LARAVEL_APP/bootstrap/cache/config.php
-    - /bin/rm -f $LARAVEL_APP/bootstrap/cache/routes-v7.php
-    - /bin/rm -f $LARAVEL_APP/bootstrap/cache/events.php
-    - cd $LARAVEL_APP && /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 artisan package:discover --ansi
-    - cd $LARAVEL_APP && /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 artisan config:clear
-    - cd $LARAVEL_APP && /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 artisan route:clear
-    - cd $LARAVEL_APP && /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 artisan cache:clear
-    - cd $LARAVEL_APP && /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 artisan view:clear
-    # ───────────────────────────────────────────────────────────────────
-    # PROJECT RULE — DEPLOYMENT MUST BE NON-DESTRUCTIVE
-    # See PROJECT_RULES.md (project root). Auto-deploy is FORBIDDEN from
-    # deleting / nullifying / mutating user data in:
-    #   • the database (rows, PII columns, attachments)
-    #   • storage/app/public/** (uploaded images, avatars, attachments)
-    # Any cleanup that touches data must be a manual artisan command run
-    # over SSH after a verified backup. The dry-run variants stay here so
-    # the deploy log surfaces what *would* change — but no `--apply`.
-    # ───────────────────────────────────────────────────────────────────
-    # Run pending migrations only. Migrations in this project are
-    # ADDITIVE — they NEVER drop columns, drop tables, or truncate data.
-    # If you need to remove schema, do it in a separate maintenance
-    # window with a fresh backup, NOT in .cpanel.yml.
-    - cd $LARAVEL_APP && /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 artisan migrate --force
-    # Re-encrypt legacy PII rows (idempotent: skips already-encrypted values).
-    # Safe by design — only writes when a column was stored as plaintext.
-    # PII / attachment cleanup commands run in DRY-RUN ONLY during deploy
-    # so the log records what *would* be cleaned. To actually apply the
-    # changes, an operator must run them manually over SSH:
-    #   php artisan pii:cleanup-corrupted --apply
-    #   php artisan attachments:purge-orphans --apply
-    - cd $LARAVEL_APP && /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 artisan pii:cleanup-corrupted || true
-    - cd $LARAVEL_APP && /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 artisan attachments:purge-orphans || true
-    # Ensure the public storage symlink exists so uploaded files are served
-    # by Apache directly (public_html/storage → laravel-app/storage/app/public).
-    # We do NOT use `php artisan storage:link` here because Laravel's default
-    # `public_path()` resolves to laravel-app/public, but on cPanel the web
-    # root is public_html — so the manual symlink is the source of truth.
-    #
-    # SAFETY: only remove the symlink, NEVER `rm -rf` a directory. If the
-    # path ever got replaced with a real folder full of uploads, `rm -rf`
-    # would wipe them. The `[ -L ... ]` test guarantees we only delete
-    # when the path is in fact a symbolic link.
-    - /bin/mkdir -p $LARAVEL_APP/storage/app/public
-    - if [ -L "$PUBLIC_HTML/storage" ]; then /bin/rm -f "$PUBLIC_HTML/storage"; fi
-    - if [ ! -e "$PUBLIC_HTML/storage" ]; then /bin/ln -s $LARAVEL_APP/storage/app/public $PUBLIC_HTML/storage; fi
-    # Only reopen after code, additive migrations and the storage guard succeed.
-    - cd $LARAVEL_APP && /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 artisan up
+      git diff --quiet 3e9e3a6d032eb45b05f40a4eed361b7747e911a7 HEAD -- .
+      ':(exclude).cpanel.yml' ':(exclude)laravel-app/app/Http/Controllers/Api/AuthController.php'
+      ':(exclude)public_html/index.html' ':(exclude)public_html/assets'
+      || { echo "Release contains paths outside the reviewed OTP scope."; exit 1; }
+    - >-
+      /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 -r 'exit(PHP_VERSION_ID >= 80512 ? 0 : 1);' || exit 1
+    - /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 -l laravel-app/app/Http/Controllers/Api/AuthController.php || exit 1
+    # Publish the backwards-compatible API response before the new frontend.
+    - /usr/bin/install -m 644 laravel-app/app/Http/Controllers/Api/AuthController.php "$LARAVEL_APP/app/Http/Controllers/Api/.AuthController.php.otp-next" || exit 1
+    - /bin/mv -f "$LARAVEL_APP/app/Http/Controllers/Api/.AuthController.php.otp-next" "$LARAVEL_APP/app/Http/Controllers/Api/AuthController.php" || exit 1
+    # Existing hashed assets remain available to already-open browser tabs.
+    - /bin/cp -R public_html/assets/. "$PUBLIC_HTML/assets/" || exit 1
+    - /usr/bin/install -m 644 public_html/index.html "$PUBLIC_HTML/.index-otp-next.html" || exit 1
+    - /bin/mv -f "$PUBLIC_HTML/.index-otp-next.html" "$PUBLIC_HTML/index.html" || exit 1
+    - cmp -s laravel-app/app/Http/Controllers/Api/AuthController.php "$LARAVEL_APP/app/Http/Controllers/Api/AuthController.php" || exit 1
+    - cmp -s public_html/index.html "$PUBLIC_HTML/index.html" || exit 1
+    - echo "OTP expiry release installed without database, settings, uploads, or storage-link changes."
