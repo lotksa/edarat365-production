@@ -1,33 +1,24 @@
 ---
-# This release installs the reviewed login/invoice QA fixes only.
-# Wider releases require a new reviewed manifest. Verify live paths and fresh
-# database/uploads backups before invoking cPanel deployment.
+# Runtime verification release only. Database/uploads backups and active FPM
+# checks are mandatory operator preflight; this unprivileged task changes code only.
 deployment:
   tasks:
     - export PUBLIC_HTML="$HOME/public_html"
     - export LARAVEL_APP="$HOME/laravel-app"
-    - test -d "$PUBLIC_HTML/assets" && test -d "$LARAVEL_APP/app/Http/Controllers/Api" && test -s "$LARAVEL_APP/.env" || exit 1
-    - test -L "$PUBLIC_HTML/storage" || exit 1
+    - export PHP_BIN=/opt/cpanel/ea-php85/root/usr/bin/php
+    - test -d "$LARAVEL_APP" && test -s "$LARAVEL_APP/.env" && test -d "$PUBLIC_HTML/assets" || exit 1
+    - test -L "$PUBLIC_HTML/storage" && test "$(readlink -f "$PUBLIC_HTML/storage")" = "$LARAVEL_APP/storage/app/public" || exit 1
     - >-
-      git diff --quiet a060f460da9ae7ddc60b61c675ee644ce6ea51fc HEAD -- .
-      ':(exclude).cpanel.yml' ':(exclude)laravel-app/app/Http/Controllers/Api/AuthController.php'
-      ':(exclude)laravel-app/app/Http/Controllers/Api/InvoiceController.php'
-      ':(exclude)public_html/index.html' ':(exclude)public_html/assets'
-      || { echo "Release contains paths outside the reviewed login/invoice scope."; exit 1; }
-    - >-
-      /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 -r 'exit(PHP_VERSION_ID >= 80512 ? 0 : 1);' || exit 1
-    - /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 -l laravel-app/app/Http/Controllers/Api/AuthController.php || exit 1
-    - /usr/local/bin/ea-php85 -d session.upload_progress.enabled=0 -l laravel-app/app/Http/Controllers/Api/InvoiceController.php || exit 1
-    # Install only the two reviewed controllers; no migrations, cleanup or settings writes.
-    - /usr/bin/install -m 644 laravel-app/app/Http/Controllers/Api/AuthController.php "$LARAVEL_APP/app/Http/Controllers/Api/.AuthController.php.qa-next" || exit 1
-    - /bin/mv -f "$LARAVEL_APP/app/Http/Controllers/Api/.AuthController.php.qa-next" "$LARAVEL_APP/app/Http/Controllers/Api/AuthController.php" || exit 1
-    - /usr/bin/install -m 644 laravel-app/app/Http/Controllers/Api/InvoiceController.php "$LARAVEL_APP/app/Http/Controllers/Api/.InvoiceController.php.qa-next" || exit 1
-    - /bin/mv -f "$LARAVEL_APP/app/Http/Controllers/Api/.InvoiceController.php.qa-next" "$LARAVEL_APP/app/Http/Controllers/Api/InvoiceController.php" || exit 1
-    # Existing hashed assets remain available to already-open browser tabs.
-    - /bin/cp -R public_html/assets/. "$PUBLIC_HTML/assets/" || exit 1
-    - /usr/bin/install -m 644 public_html/index.html "$PUBLIC_HTML/.index-qa-next.html" || exit 1
-    - /bin/mv -f "$PUBLIC_HTML/.index-qa-next.html" "$PUBLIC_HTML/index.html" || exit 1
-    - cmp -s laravel-app/app/Http/Controllers/Api/AuthController.php "$LARAVEL_APP/app/Http/Controllers/Api/AuthController.php" || exit 1
-    - cmp -s laravel-app/app/Http/Controllers/Api/InvoiceController.php "$LARAVEL_APP/app/Http/Controllers/Api/InvoiceController.php" || exit 1
-    - cmp -s public_html/index.html "$PUBLIC_HTML/index.html" || exit 1
-    - echo "Login/invoice QA release installed without database, settings, uploads, or storage-link changes."
+      git diff --quiet 4dd411e222eb5f081172aeeeffc6d8ced4f7eae4 HEAD -- .
+      ':(exclude).cpanel.yml' ':(exclude)laravel-app/tools/check-php-runtime.sh'
+      ':(exclude)PHP_RUNTIME_SECURITY.md'
+      || { echo "Release contains paths outside the reviewed runtime verification scope."; exit 1; }
+    - /bin/sh -n laravel-app/tools/check-php-runtime.sh || exit 1
+    - /bin/sh laravel-app/tools/check-php-runtime.sh || exit 1
+    - /bin/mkdir -p "$LARAVEL_APP/tools" || exit 1
+    - /usr/bin/install -m 644 laravel-app/tools/check-php-runtime.sh "$LARAVEL_APP/tools/.check-php-runtime.sh.next" || exit 1
+    - /bin/mv -f "$LARAVEL_APP/tools/.check-php-runtime.sh.next" "$LARAVEL_APP/tools/check-php-runtime.sh" || exit 1
+    - /usr/bin/install -m 644 PHP_RUNTIME_SECURITY.md "$LARAVEL_APP/PHP_RUNTIME_SECURITY.md" || exit 1
+    - cmp -s laravel-app/tools/check-php-runtime.sh "$LARAVEL_APP/tools/check-php-runtime.sh" || exit 1
+    - /bin/sh "$LARAVEL_APP/tools/check-php-runtime.sh" || exit 1
+    - echo "PHP/Brotli runtime verified; no database, settings, uploads, frontend, or storage-link changes."
