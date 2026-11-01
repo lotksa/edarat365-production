@@ -2,11 +2,16 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\DisplaysBuildingTerminology;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Notification extends Model
 {
+    use DisplaysBuildingTerminology;
+
+    protected array $buildingTerminologyFields = ['title_ar', 'title_en', 'body_ar', 'body_en'];
+
     protected $fillable = [
         'event_key', 'module', 'audience',
         'user_id', 'owner_id',
@@ -16,7 +21,7 @@ class Notification extends Model
     ];
 
     protected $casts = [
-        'data'    => 'array',
+        'data' => 'array',
         'read_at' => 'datetime',
     ];
 

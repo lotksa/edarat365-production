@@ -110,7 +110,7 @@ class PropertyController extends Controller
             $effectiveStatus = $data['status'] ?? $property?->status ?? 'active';
             if ($effectiveStatus !== 'draft') {
                 throw ValidationException::withMessages([
-                    'association_id' => 'اختيار الجمعية إلزامي لاعتماد موقع العقار تلقائيًا.',
+                    'association_id' => 'اختيار الجمعية إلزامي لاعتماد موقع المبنى تلقائيًا.',
                 ]);
             }
 
@@ -131,7 +131,7 @@ class PropertyController extends Controller
             || $this->isBlank($association->longitude)
         ) {
             throw ValidationException::withMessages([
-                'association_id' => 'يجب تعريف المدينة والحي وإحداثيات الخريطة في بيانات الجمعية قبل إنشاء أو تحديث العقار.',
+                'association_id' => 'يجب تعريف المدينة والحي وإحداثيات الخريطة في بيانات الجمعية قبل إنشاء أو تحديث المبنى.',
             ]);
         }
 
@@ -205,7 +205,7 @@ class PropertyController extends Controller
         $data = $this->applyAssociationAddressDefaults($data);
 
         $property = Property::create($data);
-        ActivityLog::record('property', $property->id, 'created', 'تم إنشاء عقار جديد');
+        ActivityLog::record('property', $property->id, 'created', 'تم إنشاء مبنى جديد');
 
         \App\Services\Notifier::dispatch('property.created', [
             'subject' => $property,
@@ -213,7 +213,7 @@ class PropertyController extends Controller
         ]);
 
         return response()->json([
-            'message' => 'Property created successfully',
+            'message' => 'Building created successfully',
             'data' => $property,
         ], 201);
     }
@@ -278,10 +278,10 @@ class PropertyController extends Controller
         $data = $this->applyAssociationAddressDefaults($data, $property);
 
         $property->update($data);
-        ActivityLog::record('property', $id, 'updated', 'تم تحديث بيانات العقار');
+        ActivityLog::record('property', $id, 'updated', 'تم تحديث بيانات المبنى');
 
         return response()->json([
-            'message' => 'Property updated successfully',
+            'message' => 'Building updated successfully',
             'data' => $property->fresh(),
         ]);
     }
@@ -295,16 +295,16 @@ class PropertyController extends Controller
             $unitCount = $property->units()->count();
             if ($unitCount > 0) {
                 return response()->json([
-                    'message' => 'لا يمكن حذف العقار لأنه يحتوي على وحدات عقارية مرتبطة',
-                    'message_en' => 'Cannot delete property with linked units',
+                    'message' => 'لا يمكن حذف المبنى لأنه يحتوي على وحدات المباني مرتبطة',
+                    'message_en' => 'Cannot delete building with linked units',
                 ], 409);
             }
         }
 
-        ActivityLog::record('property', $id, 'deleted', 'تم حذف العقار');
+        ActivityLog::record('property', $id, 'deleted', 'تم حذف المبنى');
         $property->delete();
 
-        return response()->json(['message' => 'Property deleted successfully']);
+        return response()->json(['message' => 'Building deleted successfully']);
     }
 
     public function bulkDelete(Request $request): JsonResponse
@@ -317,7 +317,7 @@ class PropertyController extends Controller
         $count = Property::whereIn('id', $data['ids'])->delete();
 
         return response()->json([
-            'message' => "Deleted {$count} properties",
+            'message' => "Deleted {$count} buildings",
             'count' => $count,
         ]);
     }
@@ -333,7 +333,7 @@ class PropertyController extends Controller
         $count = Property::whereIn('id', $data['ids'])->update(['status' => $data['status']]);
 
         return response()->json([
-            'message' => "Updated {$count} properties",
+            'message' => "Updated {$count} buildings",
             'count' => $count,
         ]);
     }
@@ -490,13 +490,13 @@ class PropertyController extends Controller
             'property',
             $property->id,
             'owner_attached',
-            'تم ربط مالك بالعقار',
+            'تم ربط مالك بالمبنى',
             null,
             ['owner_id' => $data['owner_id']]
         );
 
         return response()->json([
-            'message' => 'Owner attached to property',
+            'message' => 'Owner attached to building',
             'data' => Owner::findOrFail($data['owner_id']),
         ]);
     }

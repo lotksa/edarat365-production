@@ -27,7 +27,7 @@ class PersonSearchController extends Controller
         $sources = [
             ['model' => Owner::class,              'type' => 'owner',              'label_ar' => 'مالك',           'label_en' => 'Owner',              'has_address' => true],
             ['model' => Tenant::class,             'type' => 'tenant',             'label_ar' => 'مستأجر',         'label_en' => 'Tenant',             'has_address' => true],
-            ['model' => PropertyManager::class,    'type' => 'property_manager',   'label_ar' => 'مدير عقار',      'label_en' => 'Property Manager',   'has_address' => false],
+            ['model' => PropertyManager::class,    'type' => 'property_manager',   'label_ar' => 'مدير مبنى',      'label_en' => 'Building Manager',   'has_address' => false],
             ['model' => AssociationManager::class, 'type' => 'association_manager', 'label_ar' => 'رئيس جمعية',    'label_en' => 'Association Head',   'has_address' => false],
         ];
 

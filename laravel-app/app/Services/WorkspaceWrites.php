@@ -32,10 +32,10 @@ final class WorkspaceWrites
         $id = app(AssociationContext::class)->id;
         if ($root === 'units' && $request->isMethod('POST') && $request->path() === 'api/v1/units'
             && ! $request->input('property_id')) {
-            throw ValidationException::withMessages(['property_id' => 'اختر عقارًا من الجمعية الحالية']);
+            throw ValidationException::withMessages(['property_id' => 'اختر مبنى من الجمعية الحالية']);
         }
         if ($root === 'units' && $request->isMethod('PUT') && $request->has('property_id') && ! $request->input('property_id')) {
-            throw ValidationException::withMessages(['property_id' => 'يجب إبقاء الوحدة مرتبطة بعقار من الجمعية الحالية']);
+            throw ValidationException::withMessages(['property_id' => 'يجب إبقاء الوحدة مرتبطة بمبنى من الجمعية الحالية']);
         }
         $models = ['owners' => 'Owner', 'association-managers' => 'AssociationManager',
             'property-managers' => 'PropertyManager', 'tenants' => 'Tenant',
@@ -124,7 +124,7 @@ final class WorkspaceWrites
             }
         }
         if ($model->getTable() === 'units' && ! $model->property_id) {
-            throw ValidationException::withMessages(['property_id' => 'يجب ربط الوحدة بعقار من الجمعية الحالية']);
+            throw ValidationException::withMessages(['property_id' => 'يجب ربط الوحدة بمبنى من الجمعية الحالية']);
         }
     }
 }

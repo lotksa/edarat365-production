@@ -59,7 +59,7 @@ class UnitController extends Controller
         return [
             'unit_number.required' => 'رقم الوحدة مطلوب',
             'unit_number.unique'   => 'رقم الوحدة مستخدم مسبقاً',
-            'property_id.exists'   => 'العقار المحدد غير موجود',
+            'property_id.exists'   => 'المبنى المحدد غير موجود',
             'area.min'             => 'المساحة يجب أن تكون أكبر من صفر',
         ];
     }
@@ -521,7 +521,7 @@ class UnitController extends Controller
 
                 if ($validCount !== count(array_unique($ownerIds))) {
                     return response()->json([
-                        'message' => 'يوجد مالك خارج نطاق جمعية العقار المحدد',
+                        'message' => 'يوجد مالك خارج نطاق جمعية المبنى المحدد',
                     ], 422);
                 }
             }

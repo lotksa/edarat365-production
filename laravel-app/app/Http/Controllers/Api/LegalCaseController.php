@@ -283,7 +283,7 @@ class LegalCaseController extends Controller
             $propertyAssociationId = $this->nullableInt(Property::whereKey($propertyId)->value('association_id'));
             if ($associationId && $propertyAssociationId && $propertyAssociationId !== $associationId) {
                 throw ValidationException::withMessages([
-                    'property_id' => ['العقار المحدد لا يتبع الجمعية الحالية.'],
+                    'property_id' => ['المبنى المحدد لا يتبع الجمعية الحالية.'],
                 ]);
             }
             $associationId = $associationId ?: $propertyAssociationId;
@@ -294,7 +294,7 @@ class LegalCaseController extends Controller
             $unitAssociationId = $this->nullableInt($unit?->property?->association_id);
             if ($propertyId && $unit && (int) $unit->property_id !== $propertyId) {
                 throw ValidationException::withMessages([
-                    'unit_id' => ['الوحدة المحددة لا تتبع العقار الحالي.'],
+                    'unit_id' => ['الوحدة المحددة لا تتبع المبنى الحالي.'],
                 ]);
             }
             if ($associationId && $unitAssociationId && $unitAssociationId !== $associationId) {

@@ -19,10 +19,11 @@ use OpenSpout\Reader\XLSX\Reader;
 /** Add-only import. A preview never creates, restores or edits an owner. */
 final class OwnerSpreadsheetImport
 {
-    public const COLUMNS = ['اسم المالك', 'رقم الهوية', 'رقم الجوال', 'البريد الإلكتروني', 'الحالة', 'رقم العقار'];
+    public const COLUMNS = ['اسم المالك', 'رقم الهوية', 'رقم الجوال', 'البريد الإلكتروني', 'الحالة', 'رقم المبنى'];
     public const LIMIT = 1000;
 
     private const ALIASES = [
+        'رقم المبنى' => 'property_number', 'building number' => 'property_number',
         'اسم المالك' => 'full_name', 'الاسم الكامل' => 'full_name', 'الاسم' => 'full_name',
         'full_name' => 'full_name', 'owner name' => 'full_name', 'name' => 'full_name',
         'رقم الهوية' => 'national_id', 'الهوية' => 'national_id', 'national_id' => 'national_id', 'national id' => 'national_id',
@@ -88,7 +89,7 @@ final class OwnerSpreadsheetImport
             $targetProperty = $propertyId;
             if (!empty($data['property_number'])) {
                 $targetProperty = $properties[$data['property_number']] ?? null;
-                if (!$targetProperty) $errors[] = 'رقم العقار غير موجود في الجمعية الحالية';
+                if (!$targetProperty) $errors[] = 'رقم المبنى غير موجود في الجمعية الحالية';
             }
             unset($data['property_number']);
             $parsed[] = ['row' => $sourceRow['row'], 'data' => $data, 'property_id' => $targetProperty,

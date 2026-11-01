@@ -17,7 +17,7 @@ class InvoicePdfController extends Controller
         $invoiceSettings = Setting::getByKey('invoice_settings', []);
         $tax = $invoiceSettings['tax'] ?? [];
         $generalSettings = Setting::getByKey('general', []);
-        $brandSettings = Setting::getByKey('brand_identity', []);
+        $associationBranding = app(\App\Services\AssociationBranding::class)->forRecord($invoice);
 
         $sellerName = $tax['company_name_ar'] ?? ($generalSettings['site_name_ar'] ?? 'إدارات 365');
         $vatNumber  = $tax['vat_number'] ?? '';
@@ -34,10 +34,12 @@ class InvoicePdfController extends Controller
         $lineItems = is_array($invoice->line_items) ? $invoice->line_items : [];
 
         return response()->json([
+            'branding' => $associationBranding,
             'invoice' => [
                 'id'             => $invoice->id,
                 'invoice_number' => $invoice->invoice_number,
                 'issue_date'     => $invoiceDate,
+                'due_date'       => $invoice->due_date?->toDateString(),
                 'payment_date'   => $invoice->payment_date,
                 'status'         => $invoice->status,
                 'amount'         => (float) ($invoice->amount ?? 0),
@@ -57,6 +59,8 @@ class InvoicePdfController extends Controller
                 'phone' => $invoice->owner?->phone ?? '',
                 'email' => $invoice->owner?->email ?? '',
             ],
+            'property' => ['name' => $invoice->property?->name ?? $invoice->unit?->property?->name ?? ''],
+            'unit' => ['unit_number' => $invoice->unit?->unit_number ?? ''],
             'company' => [
                 'name_ar'       => $tax['company_name_ar'] ?? ($generalSettings['site_name_ar'] ?? 'إدارات 365'),
                 'name_en'       => $tax['company_name_en'] ?? ($generalSettings['site_name_en'] ?? 'Edarat365'),
@@ -64,7 +68,7 @@ class InvoicePdfController extends Controller
                 'address_en'    => $tax['company_address_en'] ?? '',
                 'vat_number'    => $vatNumber,
                 'cr_number'     => $tax['commercial_registration'] ?? '',
-                'logo'          => $brandSettings['sidebar_logo_light'] ?? ($generalSettings['site_logo'] ?? '/brand/logo.png'),
+                'logo'          => $associationBranding['logo'] ?? $associationBranding['icon'] ?? null,
             ],
             'tax' => [
                 'vat_enabled'      => $vatEnabled,

@@ -42,11 +42,11 @@ class PermissionCatalog
                 'associations.update' => ['تعديل جمعية', 'Update association'],
                 'associations.delete' => ['حذف جمعية', 'Delete association'],
             ]),
-            self::group('properties', 'العقارات', 'Properties', [
-                'properties.view' => ['عرض العقارات', 'View properties'],
-                'properties.create' => ['إنشاء عقار', 'Create property'],
-                'properties.update' => ['تعديل عقار', 'Update property'],
-                'properties.delete' => ['حذف عقار', 'Delete property'],
+            self::group('properties', 'المباني', 'Buildings', [
+                'properties.view' => ['عرض المباني', 'View buildings'],
+                'properties.create' => ['إنشاء مبنى', 'Create building'],
+                'properties.update' => ['تعديل مبنى', 'Update building'],
+                'properties.delete' => ['حذف مبنى', 'Delete building'],
             ]),
             self::group('units', 'الوحدات', 'Units', [
                 'units.view' => ['عرض الوحدات', 'View units'],
@@ -187,8 +187,8 @@ class PermissionCatalog
                 'key' => 'manager',
                 'name_ar' => 'مدير',
                 'name_en' => 'Manager',
-                'description_ar' => 'إدارة الجمعيات والعقارات والملاك والاجتماعات',
-                'description_en' => 'Manage associations, properties, owners and meetings',
+                'description_ar' => 'إدارة الجمعيات والمباني والملاك والاجتماعات',
+                'description_en' => 'Manage associations, buildings, owners and meetings',
                 'color' => '#0891b2',
                 'is_system' => true,
                 'permissions' => [

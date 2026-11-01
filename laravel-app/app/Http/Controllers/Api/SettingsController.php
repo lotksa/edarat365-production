@@ -130,8 +130,8 @@ class SettingsController extends Controller
             'national_address_required' => false,
             'management_models' => [
                 ['key' => 'self', 'name_ar' => 'الإدارة الذاتية', 'name_en' => 'Self Management', 'desc_ar' => 'يقوم الملاك بإدارة الجمعية بأنفسهم دون الاستعانة بجهة خارجية', 'desc_en' => 'Owners manage the association themselves without external parties', 'active' => true],
-                ['key' => 'professional', 'name_ar' => 'الإدارة المهنية', 'name_en' => 'Professional Management', 'desc_ar' => 'يتم تعيين شركة إدارة عقارية متخصصة لإدارة الجمعية', 'desc_en' => 'A specialized property management company is hired', 'active' => true],
-                ['key' => 'joint', 'name_ar' => 'الإدارة المشتركة', 'name_en' => 'Joint Management', 'desc_ar' => 'إدارة مشتركة بين الملاك وشركة إدارة عقارية بشكل تعاوني', 'desc_en' => 'Cooperative management between owners and a property management company', 'active' => true],
+                ['key' => 'professional', 'name_ar' => 'الإدارة المهنية', 'name_en' => 'Professional Management', 'desc_ar' => 'يتم تعيين شركة متخصصة في إدارة المباني لإدارة الجمعية', 'desc_en' => 'A specialized building management company is hired', 'active' => true],
+                ['key' => 'joint', 'name_ar' => 'الإدارة المشتركة', 'name_en' => 'Joint Management', 'desc_ar' => 'إدارة مشتركة بين الملاك وشركة لإدارة المباني بشكل تعاوني', 'desc_en' => 'Cooperative management between owners and a building management company', 'active' => true],
                 ['key' => 'contractual', 'name_ar' => 'الإدارة التعاقدية', 'name_en' => 'Contractual Management', 'desc_ar' => 'إدارة بموجب عقد محدد المدة مع جهة إدارية مرخصة', 'desc_en' => 'Management under a fixed-term contract with a licensed entity', 'active' => true],
             ],
         ],
@@ -254,7 +254,7 @@ class SettingsController extends Controller
             'delete_protection' => true,
             'case_types' => [
                 ['key' => 'financial_dispute', 'name_ar' => 'نزاع مالي', 'name_en' => 'Financial Dispute', 'active' => true],
-                ['key' => 'property_damage', 'name_ar' => 'ضرر بالعقار', 'name_en' => 'Property Damage', 'active' => true],
+                ['key' => 'property_damage', 'name_ar' => 'ضرر بالمبنى', 'name_en' => 'Building Damage', 'active' => true],
                 ['key' => 'tenant_dispute', 'name_ar' => 'نزاع مستأجر', 'name_en' => 'Tenant Dispute', 'active' => true],
             ],
             'court_names' => [
@@ -610,6 +610,7 @@ class SettingsController extends Controller
         $value = Setting::getByKey($key, self::DEFAULTS[$key] ?? []);
         $value = $this->stripForbidden($key, $value);
         $value = $this->decryptSecrets($key, $value, maskForApi: true);
+        $value = \App\Support\BuildingTerminology::labels($value);
 
         return response()->json([
             'key' => $key,
@@ -664,6 +665,7 @@ class SettingsController extends Controller
         Setting::setByKey($key, $merged);
 
         $response = $this->decryptSecrets($key, $merged, maskForApi: true);
+        $response = \App\Support\BuildingTerminology::labels($response);
 
         return response()->json([
             'message' => 'ok',

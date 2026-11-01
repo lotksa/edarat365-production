@@ -8,6 +8,20 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Meeting extends Model
 {
+    protected static function booted(): void
+    {
+        static::updating(function (Meeting $meeting) {
+            if ($meeting->getOriginal('documented_at') && $meeting->isDirty([
+                'association_id', 'scheduled_at', 'type', 'status', 'minutes', 'attendees',
+                'quorum_snapshot', 'documented_at', 'minutes_signed_at', 'meeting_call', 'previous_meeting_id',
+            ])) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'minutes' => ['السجل الموثّق محفوظ؛ لا يمكن إعادة كتابة المحضر أو الحضور أو النصاب.'],
+                ]);
+            }
+        });
+    }
+
     protected $fillable = [
         'meeting_number', 'title', 'type', 'scheduled_at',
         'association_id', 'property_id',
@@ -15,6 +29,8 @@ class Meeting extends Model
         'attendance_type', 'attendance_scope_id',
         'is_remote', 'remote_platform', 'remote_link',
         'invitees', 'attendees', 'manager_name', 'manager_id',
+        'invitation_date', 'meeting_call', 'previous_meeting_id', 'documented_at',
+        'minutes_signed_at', 'quorum_snapshot', 'meeting_format',
     ];
 
     protected $casts = [
@@ -23,6 +39,11 @@ class Meeting extends Model
         'invitees'      => 'array',
         'attendees'     => 'array',
         'is_remote'     => 'boolean',
+        'invitation_date' => 'date',
+        'documented_at' => 'datetime',
+        'minutes_signed_at' => 'datetime',
+        'quorum_snapshot' => 'array',
+        'meeting_call' => 'integer',
     ];
 
     public function association(): BelongsTo

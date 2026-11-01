@@ -255,7 +255,7 @@ class MaintenanceController extends Controller
 
         if ($propertyId && !Property::whereKey($propertyId)->where('association_id', $associationId)->exists()) {
             throw ValidationException::withMessages([
-                'property_id' => ['العقار المحدد لا يتبع هذه الجمعية.'],
+                'property_id' => ['المبنى المحدد لا يتبع هذه الجمعية.'],
             ]);
         }
 

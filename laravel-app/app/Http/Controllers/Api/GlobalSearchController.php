@@ -126,7 +126,7 @@ class GlobalSearchController extends Controller
 
         // ── Properties ──────────────────────────────────────────────────
         if ($sections['properties'] ?? true) {
-            $groups[] = $this->safeSection('properties', 'العقارات', 'Properties', 'contract',
+            $groups[] = $this->safeSection('properties', 'المباني', 'Buildings', 'contract',
                 fn() => $this->searchProperties($q, $limit)
             );
         }
@@ -210,7 +210,7 @@ class GlobalSearchController extends Controller
 
         // ── Property Managers ───────────────────────────────────────────
         if ($sections['property_managers'] ?? true) {
-            $groups[] = $this->safeSection('property_managers', 'مدراء العقار', 'Property Managers', 'user',
+            $groups[] = $this->safeSection('property_managers', 'مدراء المباني', 'Building Managers', 'user',
                 fn() => $this->searchPropertyManagers($q, $digits, $phoneVariants, $isDigitsOnly, $limit)
             );
         }
@@ -422,7 +422,7 @@ class GlobalSearchController extends Controller
                 ])->filter()->join(' • ');
                 return [
                     'id' => $r->id,
-                    'title' => $r->name ?: ('عقار #' . $r->id),
+                    'title' => $r->name ?: ('مبنى #' . $r->id),
                     'subtitle' => $subtitle,
                     'badge' => $r->status ?: null,
                     'url' => "/properties/{$r->id}",
@@ -448,7 +448,7 @@ class GlobalSearchController extends Controller
         return $base->orderByDesc('id')->limit($limit)->get()
             ->map(function ($r) {
                 $subtitle = collect([
-                    $r->property?->name ? 'العقار: ' . $r->property->name : null,
+                    $r->property?->name ? 'المبنى: ' . $r->property->name : null,
                     $r->building_name ? 'مبنى: ' . $r->building_name : null,
                     $r->floor_number !== null ? 'الدور: ' . $r->floor_number : null,
                     $r->unit_type ?: null,
@@ -835,7 +835,7 @@ class GlobalSearchController extends Controller
                 $subtitle = collect([$r->phone ?: null, $r->email ?: null])->filter()->join(' • ');
                 return [
                     'id' => $r->id,
-                    'title' => $r->full_name ?: ('مدير عقار #' . $r->id),
+                    'title' => $r->full_name ?: ('مدير مبنى #' . $r->id),
                     'subtitle' => $subtitle,
                     'badge' => $r->status ?: null,
                     'url' => "/property-managers?focus={$r->id}",

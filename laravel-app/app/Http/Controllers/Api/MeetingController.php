@@ -305,7 +305,7 @@ class MeetingController extends Controller
             'title.required'             => 'عنوان الاجتماع مطلوب',
             'scheduled_at.required'      => 'تاريخ ووقت الاجتماع مطلوب',
             'attendance_type.in'         => 'نوع الحضور غير صالح',
-            'attendance_scope_id.exists' => 'العقار المحدد غير موجود',
+            'attendance_scope_id.exists' => 'المبنى المحدد غير موجود',
             'remote_platform.in'         => 'منصة الاجتماع عن بُعد غير صالحة',
             'remote_platform.required_if' => 'منصة الاجتماع مطلوبة عند تفعيل الاجتماع عن بُعد',
             'remote_link.required_if'    => 'رابط الاجتماع مطلوب عند اختيار منصة يدوية',
@@ -365,7 +365,7 @@ class MeetingController extends Controller
             $propertyAssociationId = $this->nullableInt(Property::whereKey($propertyId)->value('association_id'));
             if ($associationId && $propertyAssociationId && $propertyAssociationId !== $associationId) {
                 throw ValidationException::withMessages([
-                    'property_id' => ['العقار المحدد لا يتبع الجمعية الحالية.'],
+                    'property_id' => ['المبنى المحدد لا يتبع الجمعية الحالية.'],
                 ]);
             }
             $associationId = $associationId ?: $propertyAssociationId;
@@ -375,7 +375,7 @@ class MeetingController extends Controller
             $scopeAssociationId = $this->nullableInt(Property::whereKey($scopePropertyId)->value('association_id'));
             if ($associationId && $scopeAssociationId && $scopeAssociationId !== $associationId) {
                 throw ValidationException::withMessages([
-                    'attendance_scope_id' => ['عقار نطاق الحضور لا يتبع الجمعية الحالية.'],
+                    'attendance_scope_id' => ['مبنى نطاق الحضور لا يتبع الجمعية الحالية.'],
                 ]);
             }
             $associationId = $associationId ?: $scopeAssociationId;

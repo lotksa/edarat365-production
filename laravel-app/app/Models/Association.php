@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Association extends Model
 {
     protected $fillable = [
-        'name', 'name_en', 'logo', 'registration_number', 'association_number',
+        'name', 'name_en', 'logo', 'icon', 'registration_number', 'association_number',
         'city', 'address', 'phone', 'email', 'manager_name',
         'established_date', 'first_approval_date', 'expiry_date',
         'unified_number', 'establishment_number',

@@ -244,9 +244,9 @@ class Notifier
         ],
         'property.created' => [
             'module' => 'properties', 'audience' => ['admin'], 'level' => 'info', 'default' => false,
-            'title_ar' => 'عقار جديد', 'title_en' => 'New property',
-            'body_ar'  => 'تم إضافة العقار {name}.',
-            'body_en'  => 'Property "{name}" has been added.',
+            'title_ar' => 'مبنى جديد', 'title_en' => 'New building',
+            'body_ar'  => 'تم إضافة المبنى {name}.',
+            'body_en'  => 'Building "{name}" has been added.',
         ],
         'unit.created' => [
             'module' => 'units', 'audience' => ['admin'], 'level' => 'info', 'default' => false,

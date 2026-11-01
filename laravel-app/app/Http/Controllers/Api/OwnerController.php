@@ -105,7 +105,7 @@ class OwnerController extends Controller
         }
         DB::transaction(function () use ($owner, $property) {
             $owner->properties()->syncWithoutDetaching([$property->id]);
-            ActivityLog::record('owner', $owner->id, 'linked_to_workspace', 'تم ربط مالك موجود بعقار الجمعية', null, ['property_id' => $property->id]);
+            ActivityLog::record('owner', $owner->id, 'linked_to_workspace', 'تم ربط مالك موجود بمبنى الجمعية', null, ['property_id' => $property->id]);
         });
         return response()->json(['message' => 'تم ربط المالك مع الحفاظ على ملفه وارتباطاته الأخرى', 'data' => Owner::findOrFail($owner->id)]);
     }
@@ -220,7 +220,7 @@ class OwnerController extends Controller
                     'property',
                     $propertyId,
                     'owner_attached',
-                    'تم ربط المالك المعاد تفعيله بالعقار تلقائيًا',
+                    'تم ربط المالك المعاد تفعيله بالمبنى تلقائيًا',
                     null,
                     ['owner_id' => $trashed->id]
                 );
@@ -295,7 +295,7 @@ class OwnerController extends Controller
                     'property',
                     $propertyId,
                     'owner_attached',
-                    'تم إنشاء المالك وربطه بالعقار تلقائيًا',
+                    'تم إنشاء المالك وربطه بالمبنى تلقائيًا',
                     null,
                     ['owner_id' => $owner->id]
                 );
@@ -490,7 +490,7 @@ class OwnerController extends Controller
 
         if ($protectionEnabled) {
             $linked = [];
-            if ($owner->units->count() > 0)     $linked[] = 'وحدات عقارية';
+            if ($owner->units->count() > 0)     $linked[] = 'وحدات المباني';
             if ($owner->invoices->count() > 0)   $linked[] = 'فواتير';
             if ($owner->contracts->count() > 0)  $linked[] = 'عقود';
             if ($owner->legalCases->count() > 0) $linked[] = 'قضايا';

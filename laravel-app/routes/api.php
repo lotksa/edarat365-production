@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\AssociationController;
+use App\Http\Controllers\Api\AssociationBrandingController;
+use App\Http\Controllers\Api\RecordDocumentController;
 use App\Http\Controllers\Api\AssociationManagerController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AccountController;
@@ -86,6 +88,17 @@ Route::prefix('v1')->group(function () {
         Route::delete('/account/avatar', [AccountController::class, 'removeAvatar']);
 
         // Dashboard
+        Route::middleware('permission:associations.view')->prefix('workspace')->group(function () {
+            Route::get('/records/{module}', [\App\Http\Controllers\Api\ExecutiveRecordsController::class, 'index']);
+            Route::post('/records/{module}/review', [\App\Http\Controllers\Api\ExecutiveRecordsController::class, 'review']);
+            Route::get('/followup', [\App\Http\Controllers\Api\MeetingFollowupController::class, 'index'])->middleware('permission:meetings.view');
+            Route::get('/followup/settings', [\App\Http\Controllers\Api\MeetingFollowupController::class, 'settings'])->middleware('permission:settings.view');
+            Route::put('/followup/settings', [\App\Http\Controllers\Api\MeetingFollowupController::class, 'updateSettings'])->middleware('permission:settings.update');
+            Route::get('/followup/meetings/{id}', [\App\Http\Controllers\Api\MeetingFollowupController::class, 'show'])->whereNumber('id')->middleware('permission:meetings.view');
+            Route::post('/followup/meetings', [\App\Http\Controllers\Api\MeetingFollowupController::class, 'store'])->middleware('permission:meetings.create');
+            Route::post('/followup/meetings/{id}/document', [\App\Http\Controllers\Api\MeetingFollowupController::class, 'document'])->whereNumber('id')->middleware('permission:meetings.update');
+            Route::post('/followup/reminders', [\App\Http\Controllers\Api\MeetingFollowupController::class, 'reminder'])->middleware('permission:meetings.update');
+        });
         Route::get('/workspace/overview', [\App\Http\Controllers\Api\WorkspaceController::class, 'overview'])
             ->middleware('permission:associations.view');
         Route::get('/workspace/unassigned', [\App\Http\Controllers\Api\WorkspaceController::class, 'unassigned'])
@@ -208,6 +221,9 @@ Route::prefix('v1')->group(function () {
         Route::delete('/association-managers/{id}', [AssociationManagerController::class, 'destroy'])->middleware('permission:associations.delete');
 
         // ── Associations ─────────────────────────────────────────────────────
+        Route::get('/documents/{module}/{id}', [RecordDocumentController::class, 'show'])->whereNumber('id');
+        Route::get('/associations/{id}/branding', [AssociationBrandingController::class, 'show'])->middleware('permission:associations.view');
+        Route::post('/associations/{id}/branding', [AssociationBrandingController::class, 'update'])->middleware('permission:associations.update');
         Route::middleware('permission:associations.view')->group(function () {
             Route::get('/associations/stats', [AssociationController::class, 'stats']);
             Route::get('/associations', [AssociationController::class, 'index']);

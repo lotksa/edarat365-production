@@ -39,9 +39,11 @@ final class WorkspaceController extends Controller
             foreach (Association::with(['manager', 'city', 'district'])->orderBy('name')->get() as $association) {
                 $context->id = $association->id;
                 $row = $association->toArray();
-                $row['properties_count'] = $request->user()->hasPermission('properties.view') ? $association->properties()->count() : null;
-                $row['units_count'] = $request->user()->hasPermission('units.view') ? Unit::count() : null;
-                $row['owners_count'] = $request->user()->hasPermission('owners.view') ? Owner::count() : null;
+                $row['properties_count'] = $analyticsService->can($request->user(), 'properties.view') ? $association->properties()->count() : null;
+                $row['units_count'] = $analyticsService->can($request->user(), 'units.view') ? Unit::count() : null;
+                $row['owners_count'] = $analyticsService->can($request->user(), 'owners.view') ? Owner::count() : null;
+                $city = $association->getRelation('city');
+                $row['city_name'] = $city?->name_ar ?: $city?->name ?: $association->getRawOriginal('city');
                 $row['financial'] = $analyticsService->can($request->user(), 'invoices.view') ? $analyticsService->financial((string) $period, false) : null;
                 $row['unpaid_count'] = $row['financial']['unpaid_count'] ?? null;
                 $row['unpaid_amount'] = $row['financial']['outstanding'] ?? null;
@@ -54,14 +56,14 @@ final class WorkspaceController extends Controller
                     $attention[] = ['association_id' => $association->id, 'association_name' => $association->name,
                         'kind' => 'invoices', 'count' => $row['unpaid_count'], 'path' => '/invoices?status=unpaid'];
                 }
-                if ($request->user()->hasPermission('meetings.view')) {
+                if ($analyticsService->can($request->user(), 'meetings.view')) {
                     $meeting = Meeting::where('scheduled_at', '>=', now())->whereNotIn('status', ['cancelled', 'completed'])
                         ->orderBy('scheduled_at')->first(['id', 'title', 'scheduled_at', 'association_id']);
                     if ($meeting && (! $nextMeeting || $meeting->scheduled_at < $nextMeeting['scheduled_at'])) {
                         $nextMeeting = $meeting->toArray() + ['association_name' => $association->name];
                     }
                 }
-                if ($request->user()->hasPermission('activity_log.view')) {
+                if ($analyticsService->can($request->user(), 'activity_log.view')) {
                     foreach (ActivityLog::latest('id')->limit(3)->get(['id', 'action', 'description', 'performer', 'created_at']) as $log) {
                         $activities[] = $log->toArray() + ['association_id' => $association->id, 'association_name' => $association->name];
                     }

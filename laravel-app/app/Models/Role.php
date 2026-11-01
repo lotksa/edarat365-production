@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\DisplaysBuildingTerminology;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -9,7 +10,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Role extends Model
 {
+    use DisplaysBuildingTerminology;
     use HasFactory;
+
+    protected array $buildingTerminologyFields = ['name_ar', 'name_en', 'description_ar', 'description_en'];
 
     protected $fillable = [
         'key', 'name_ar', 'name_en',

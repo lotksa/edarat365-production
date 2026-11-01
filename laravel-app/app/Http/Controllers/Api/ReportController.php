@@ -333,8 +333,8 @@ class ReportController extends Controller
             if ($byProperty->count() > 0) {
                 $breakdowns[] = [
                     'key' => 'by_property',
-                    'title_ar' => 'الملاك حسب العقار (أعلى 10)',
-                    'title_en' => 'Owners by Property (Top 10)',
+                    'title_ar' => 'الملاك حسب المبنى (أعلى 10)',
+                    'title_en' => 'Owners by Building (Top 10)',
                     'type' => 'bar',
                     'items' => $byProperty->map(fn ($r, $i) => [
                         'label_ar' => $r->name ?? '-',
@@ -456,8 +456,8 @@ class ReportController extends Controller
             if ($propsByType->count() > 0) {
                 $breakdowns[] = [
                     'key' => 'properties_by_type',
-                    'title_ar' => 'العقارات حسب النوع',
-                    'title_en' => 'Properties by Type',
+                    'title_ar' => 'المباني حسب النوع',
+                    'title_en' => 'Buildings by Type',
                     'type' => 'doughnut',
                     'items' => $propsByType->map(fn ($r, $i) => [
                         'label_ar' => $r->type ?: '-',
@@ -469,12 +469,12 @@ class ReportController extends Controller
             }
 
             return [
-                'title'    => ['ar' => 'تقرير العقارات والوحدات', 'en' => 'Properties & Units Report'],
+                'title'    => ['ar' => 'تقرير المباني والوحدات', 'en' => 'Buildings & Units Report'],
                 'subtitle' => ['ar' => 'نسب الإشغال وتوزيع الوحدات', 'en' => 'Occupancy and unit distribution'],
 
                 'stats' => [
-                    ['key' => 'properties',     'label_ar' => 'إجمالي العقارات',  'label_en' => 'Properties',     'value' => $totalProperties,  'format' => 'number',  'color' => 'navy',    'icon' => 'building'],
-                    ['key' => 'active_props',   'label_ar' => 'عقارات نشطة',      'label_en' => 'Active',         'value' => $activeProperties, 'format' => 'number',  'color' => 'emerald', 'icon' => 'check'],
+                    ['key' => 'properties',     'label_ar' => 'إجمالي المباني',  'label_en' => 'Buildings',     'value' => $totalProperties,  'format' => 'number',  'color' => 'navy',    'icon' => 'building'],
+                    ['key' => 'active_props',   'label_ar' => 'مباني نشطة',      'label_en' => 'Active',         'value' => $activeProperties, 'format' => 'number',  'color' => 'emerald', 'icon' => 'check'],
                     ['key' => 'total_units',    'label_ar' => 'إجمالي الوحدات',   'label_en' => 'Total Units',    'value' => $totalUnits,       'format' => 'number',  'color' => 'blue',    'icon' => 'grid'],
                     ['key' => 'occupied_units', 'label_ar' => 'وحدات مشغولة',     'label_en' => 'Occupied Units', 'value' => $occupiedUnits,    'format' => 'number',  'color' => 'emerald', 'icon' => 'home'],
                     ['key' => 'vacant_units',   'label_ar' => 'وحدات شاغرة',      'label_en' => 'Vacant Units',   'value' => $vacantUnits,      'format' => 'number',  'color' => 'amber',   'icon' => 'clock'],
@@ -482,22 +482,22 @@ class ReportController extends Controller
                 ],
 
                 'monthly' => [
-                    'title_ar' => 'إضافة العقارات شهرياً',
-                    'title_en' => 'Properties Added Per Month',
+                    'title_ar' => 'إضافة المباني شهرياً',
+                    'title_en' => 'Buildings Added Per Month',
                     'year'     => $year,
                     'months'   => $this->monthsArray(),
                     'datasets' => [
-                        ['key' => 'count', 'label_ar' => 'عقارات جديدة', 'label_en' => 'New Properties', 'color' => '#021B4A', 'values' => $this->padMonthly($monthlyRows)],
+                        ['key' => 'count', 'label_ar' => 'مباني جديدة', 'label_en' => 'New Buildings', 'color' => '#021B4A', 'values' => $this->padMonthly($monthlyRows)],
                     ],
                 ],
 
                 'breakdowns' => $breakdowns,
 
                 'table' => $unitsByProperty->count() > 0 ? [
-                    'title_ar' => 'الإشغال حسب العقار',
-                    'title_en' => 'Occupancy by Property',
+                    'title_ar' => 'الإشغال حسب المبنى',
+                    'title_en' => 'Occupancy by Building',
                     'columns' => [
-                        ['key' => 'name',     'label_ar' => 'العقار',           'label_en' => 'Property',  'format' => 'text'],
+                        ['key' => 'name',     'label_ar' => 'المبنى',           'label_en' => 'Building',  'format' => 'text'],
                         ['key' => 'total',    'label_ar' => 'إجمالي الوحدات',  'label_en' => 'Units',     'format' => 'number'],
                         ['key' => 'occupied', 'label_ar' => 'مشغولة',           'label_en' => 'Occupied',  'format' => 'number'],
                         ['key' => 'rate',     'label_ar' => 'نسبة الإشغال',     'label_en' => 'Occupancy', 'format' => 'percent'],
@@ -620,7 +620,7 @@ class ReportController extends Controller
                     'columns' => [
                         ['key' => 'contract_number', 'label_ar' => 'رقم العقد',     'label_en' => 'Contract #',  'format' => 'text'],
                         ['key' => 'owner_name',      'label_ar' => 'المالك',        'label_en' => 'Owner',       'format' => 'text'],
-                        ['key' => 'property_name',   'label_ar' => 'العقار',        'label_en' => 'Property',    'format' => 'text'],
+                        ['key' => 'property_name',   'label_ar' => 'المبنى',        'label_en' => 'Building',    'format' => 'text'],
                         ['key' => 'end_date',        'label_ar' => 'تاريخ الانتهاء', 'label_en' => 'End Date',   'format' => 'date'],
                         ['key' => 'days_left',       'label_ar' => 'أيام متبقية',    'label_en' => 'Days Left',   'format' => 'number'],
                     ],

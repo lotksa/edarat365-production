@@ -44,7 +44,7 @@ class ExportImportController extends Controller
             'type' => 'النوع',
             'area' => 'المساحة',
             'status' => 'الحالة',
-            'property.name' => 'العقار',
+            'property.name' => 'المبنى',
             'association.name' => 'الجمعية',
             'created_at' => 'تاريخ الإنشاء',
         ],
@@ -59,8 +59,8 @@ class ExportImportController extends Controller
         ],
         'properties' => [
             'id' => 'ID',
-            'name' => 'اسم العقار',
-            'property_type' => 'نوع العقار',
+            'name' => 'اسم المبنى',
+            'property_type' => 'نوع المبنى',
             'city' => 'المدينة',
             'district' => 'الحي',
             'status' => 'الحالة',
@@ -104,7 +104,7 @@ class ExportImportController extends Controller
             'spot_number' => 'رقم الموقف',
             'spot_type' => 'نوع الموقف',
             'association.name' => 'الجمعية',
-            'property_name' => 'العقار',
+            'property_name' => 'المبنى',
             'status' => 'الحالة',
         ],
         'vehicles' => [
@@ -122,7 +122,7 @@ class ExportImportController extends Controller
             'contract_number' => 'رقم العقد',
             'contract_nature' => 'طبيعة العقد',
             'owner.full_name' => 'المالك',
-            'property.name' => 'العقار',
+            'property.name' => 'المبنى',
             'start_date' => 'تاريخ البداية',
             'end_date' => 'تاريخ النهاية',
             'status' => 'الحالة',
@@ -222,7 +222,8 @@ class ExportImportController extends Controller
         $headers = array_values($cols);
         $keys = array_keys($cols);
 
-        $filename = "{$module}_" . date('Y-m-d_His') . '.csv';
+        $downloadName = $module === 'properties' ? 'buildings' : $module;
+        $filename = "{$downloadName}_" . date('Y-m-d_His') . '.csv';
 
         return response()->streamDownload(function () use ($records, $headers, $keys) {
             $out = fopen('php://output', 'w');
@@ -251,7 +252,8 @@ class ExportImportController extends Controller
 
         $cols = $module === 'owners' ? self::OWNER_TEMPLATE_COLUMNS : self::COLUMN_MAP[$module];
         $headers = array_values($cols);
-        $filename = "{$module}_template.csv";
+        $downloadName = $module === 'properties' ? 'buildings' : $module;
+        $filename = "{$downloadName}_template.csv";
 
         return response()->streamDownload(function () use ($headers) {
             $out = fopen('php://output', 'w');
@@ -317,7 +319,7 @@ class ExportImportController extends Controller
 
             $data = [];
             foreach ($csvHeaders as $idx => $header) {
-                $header = trim($header);
+                $header = \App\Support\BuildingTerminology::text(trim($header));
                 if (isset($headerMap[$header])) {
                     $colIdx = $headerMap[$header];
                     $fieldKey = $keyMap[$colIdx] ?? null;

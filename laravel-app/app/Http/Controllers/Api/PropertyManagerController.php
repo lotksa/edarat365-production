@@ -73,7 +73,7 @@ class PropertyManagerController extends Controller
         $data['status'] = 'active';
         $manager = PropertyManager::create($data);
 
-        return response()->json(['message' => 'Property manager created', 'data' => $manager], 201);
+        return response()->json(['message' => 'Building manager created', 'data' => $manager], 201);
     }
 
     public function show(int $id): JsonResponse

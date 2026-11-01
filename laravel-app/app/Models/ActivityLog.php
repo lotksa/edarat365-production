@@ -2,20 +2,25 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\DisplaysBuildingTerminology;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class ActivityLog extends Model
 {
+    use DisplaysBuildingTerminology;
+
+    protected array $buildingTerminologyFields = ['description'];
+
     protected $fillable = [
         'subject_type', 'subject_id', 'action',
         'performer', 'performer_id', 'old_values', 'new_values', 'description',
     ];
 
     protected $casts = [
-        'old_values'   => 'array',
-        'new_values'   => 'array',
+        'old_values' => 'array',
+        'new_values' => 'array',
         'performer_id' => 'integer',
     ];
 
@@ -62,12 +67,12 @@ class ActivityLog extends Model
 
         return self::create([
             'subject_type' => $subjectType,
-            'subject_id'   => $subjectId,
-            'action'       => $action,
-            'description'  => $description,
-            'old_values'   => $oldValues,
-            'new_values'   => $newValues,
-            'performer'    => $performer ?? ($authUser?->name ?? 'system'),
+            'subject_id' => $subjectId,
+            'action' => $action,
+            'description' => $description,
+            'old_values' => $oldValues,
+            'new_values' => $newValues,
+            'performer' => $performer ?? ($authUser?->name ?? 'system'),
             'performer_id' => $authUser?->id,
         ]);
     }

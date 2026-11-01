@@ -1,24 +1,10 @@
 ---
-# Runtime verification release only. Database/uploads backups and active FPM
-# checks are mandatory operator preflight; this unprivileged task changes code only.
+# Reviewed association workspace/branding release. The helper refuses deployment
+# without fresh verified database/upload backups and a matching file manifest.
 deployment:
   tasks:
-    - export PUBLIC_HTML="$HOME/public_html"
-    - export LARAVEL_APP="$HOME/laravel-app"
     - export PHP_BIN=/opt/cpanel/ea-php85/root/usr/bin/php
-    - test -d "$LARAVEL_APP" && test -s "$LARAVEL_APP/.env" && test -d "$PUBLIC_HTML/assets" || exit 1
-    - test -L "$PUBLIC_HTML/storage" && test "$(readlink -f "$PUBLIC_HTML/storage")" = "$LARAVEL_APP/storage/app/public" || exit 1
-    - >-
-      git diff --quiet 4dd411e222eb5f081172aeeeffc6d8ced4f7eae4 HEAD -- .
-      ':(exclude).cpanel.yml' ':(exclude)laravel-app/tools/check-php-runtime.sh'
-      ':(exclude)PHP_RUNTIME_SECURITY.md'
-      || { echo "Release contains paths outside the reviewed runtime verification scope."; exit 1; }
     - /bin/sh -n laravel-app/tools/check-php-runtime.sh || exit 1
     - /bin/sh laravel-app/tools/check-php-runtime.sh || exit 1
-    - /bin/mkdir -p "$LARAVEL_APP/tools" || exit 1
-    - /usr/bin/install -m 644 laravel-app/tools/check-php-runtime.sh "$LARAVEL_APP/tools/.check-php-runtime.sh.next" || exit 1
-    - /bin/mv -f "$LARAVEL_APP/tools/.check-php-runtime.sh.next" "$LARAVEL_APP/tools/check-php-runtime.sh" || exit 1
-    - /usr/bin/install -m 644 PHP_RUNTIME_SECURITY.md "$LARAVEL_APP/PHP_RUNTIME_SECURITY.md" || exit 1
-    - cmp -s laravel-app/tools/check-php-runtime.sh "$LARAVEL_APP/tools/check-php-runtime.sh" || exit 1
-    - /bin/sh "$LARAVEL_APP/tools/check-php-runtime.sh" || exit 1
-    - echo "PHP/Brotli runtime verified; no database, settings, uploads, frontend, or storage-link changes."
+    - $PHP_BIN -d session.upload_progress.enabled=0 laravel-app/tools/release-guard.php deploy /home1/edarat/deploy-backups/edarat365-20261101-workspace-branding || exit 1
+    - echo "Reviewed release complete; existing database rows, uploads, environment and storage link preserved."

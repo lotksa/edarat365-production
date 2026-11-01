@@ -309,9 +309,6 @@ class AssociationController extends Controller
     private function handleLogo(Request $request, ?Association $existing = null): ?string
     {
         if ($request->hasFile('logo')) {
-            if ($existing && $existing->logo) {
-                Storage::disk('public')->delete($existing->logo);
-            }
             return $request->file('logo')->store('associations/logos', 'public');
         }
         return null;
@@ -348,7 +345,7 @@ class AssociationController extends Controller
         ])->findOrFail($id);
 
         $data = $association->toArray();
-        $data['association_settings'] = Setting::getByKey('association_settings', []);
+        $data['association_settings'] = \App\Support\BuildingTerminology::labels(Setting::getByKey('association_settings', []));
 
         $data['meetings'] = \App\Models\Meeting::where('association_id', $id)
             ->orderByDesc('scheduled_at')->limit(50)->get();
@@ -551,7 +548,7 @@ class AssociationController extends Controller
         $this->guardWorkspaceOrigins($data['ids']);
         if ((Setting::getByKey('association_settings', [])['delete_protection'] ?? true)
             && \App\Models\Property::whereIn('association_id', $data['ids'])->exists()) {
-            return response()->json(['message' => 'لا يمكن حذف جمعيات تحتوي عقارات مرتبطة', 'protected' => true], 422);
+            return response()->json(['message' => 'لا يمكن حذف جمعيات تحتوي مباني مرتبطة', 'protected' => true], 422);
         }
         $count = Association::whereIn('id', $data['ids'])->delete();
         return response()->json(['message' => "تم حذف {$count} جمعيات بنجاح", 'count' => $count]);

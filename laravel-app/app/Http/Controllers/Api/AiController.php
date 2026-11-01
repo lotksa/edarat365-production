@@ -387,7 +387,7 @@ class AiController extends Controller
 
 الملاك: الإجمالي={$owners->total}
 الجمعيات: الإجمالي={$associations->total}, نشطة={$associations->active}
-العقارات: الإجمالي={$properties->total}, سكني={$properties->residential}, تجاري={$properties->commercial}
+المباني: الإجمالي={$properties->total}, سكني={$properties->residential}, تجاري={$properties->commercial}
 الوحدات: الإجمالي={$units->total}, مشغولة={$units->occupied}, شاغرة={$units->vacant}, تحت الصيانة={$units->maint}
 الفواتير: الإجمالي={$invoices->total}, مسددة={$invoices->paid}, معلقة={$invoices->pending}, متأخرة={$invoices->overdue}, إجمالي المبالغ={$invoices->total_amount} ريال
 الصيانة: الإجمالي={$maintenance->total}, منجزة={$maintenance->completed}, قيد التنفيذ={$maintenance->in_progress}, معلقة={$maintenance->pending}, متأخرة={$maintenance->overdue}
@@ -415,12 +415,12 @@ class AiController extends Controller
         }
 
         $context = $this->gatherPlatformContext();
-        $systemPrompt = "أنت مساعد ذكي لمنصة إدارات 365 لإدارة اتحاد الملاك والعقارات. اسمك 'مساعد إدارات'.
+        $systemPrompt = "أنت مساعد ذكي لمنصة إدارات 365 لإدارة اتحاد الملاك والمباني. اسمك 'مساعد إدارات'.
 أنت تساعد المسؤول في:
 1. فهم بيانات المنصة وتحليلها
 2. تقديم توصيات لتحسين الأداء
 3. التنبيه على المشكلات المحتملة (فواتير متأخرة، صيانة معلقة، عقود منتهية)
-4. الإجابة عن أي سؤال يتعلق بإدارة العقارات واتحاد الملاك
+4. الإجابة عن أي سؤال يتعلق بإدارة المباني واتحاد الملاك
 5. اقتراح إجراءات ذكية
 
 التزم بالعربية إلا إذا طلب المستخدم الإنجليزية. كن مختصراً ومفيداً.
@@ -556,7 +556,7 @@ class AiController extends Controller
             return response()->json(['suggestions' => []]);
         }
 
-        $prompt = "أنت مساعد لمنصة إدارة عقارات. المستخدم يعمل في سياق: {$request->context}
+        $prompt = "أنت مساعد لمنصة إدارة مباني. المستخدم يعمل في سياق: {$request->context}
 الحقل: {$request->field}
 القيمة الحالية: {$request->value}
 أعطني 3 اقتراحات مناسبة كـ JSON array من strings فقط بدون أي نص إضافي.";
