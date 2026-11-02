@@ -1,10 +1,10 @@
 ---
-# Reviewed table layout and association navigation release. The helper refuses deployment
+# Reviewed table UI and on-demand route loading release. The helper refuses deployment
 # without fresh verified database/upload backups and a matching file manifest.
 deployment:
   tasks:
     - export PHP_BIN=/opt/cpanel/ea-php85/root/usr/bin/php
     - /bin/sh -n laravel-app/tools/check-php-runtime.sh || exit 1
     - /bin/sh laravel-app/tools/check-php-runtime.sh || exit 1
-    - $PHP_BIN -d session.upload_progress.enabled=0 laravel-app/tools/release-guard.php deploy /home1/edarat/deploy-backups/edarat365-20261102-table-ui || exit 1
+    - $PHP_BIN -d session.upload_progress.enabled=0 laravel-app/tools/release-guard.php deploy /home1/edarat/deploy-backups/edarat365-20261102-page-loading || exit 1
     - echo "Reviewed release complete; existing database rows, uploads, environment and storage link preserved."
