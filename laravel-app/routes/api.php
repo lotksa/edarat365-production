@@ -50,6 +50,8 @@ Route::prefix('v1')->group(function () {
         'status' => 'ok',
         'service' => 'edarat365-api',
     ]));
+    Route::get('/public/invoices/{token}', [\App\Http\Controllers\Api\PublicInvoiceSummaryController::class, 'show'])
+        ->where('token', '[A-Za-z0-9_-]{45,120}')->middleware('throttle:60,1');
 
     // Public Turnstile bootstrap — returns site_key + per-page flags only.
     Route::get('/auth/turnstile-config', [AuthController::class, 'turnstileConfig']);
@@ -224,6 +226,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/documents/{module}/{id}', [RecordDocumentController::class, 'show'])->whereNumber('id');
         Route::get('/associations/{id}/branding', [AssociationBrandingController::class, 'show'])->middleware('permission:associations.view');
         Route::post('/associations/{id}/branding', [AssociationBrandingController::class, 'update'])->middleware('permission:associations.update');
+        Route::get('/associations/{id}/invoice-settings', [\App\Http\Controllers\Api\AssociationInvoiceSettingsController::class, 'show'])->middleware('permission:associations.view,invoices.view');
+        Route::put('/associations/{id}/invoice-settings', [\App\Http\Controllers\Api\AssociationInvoiceSettingsController::class, 'update'])->middleware('permission:associations.update');
         Route::middleware('permission:associations.view')->group(function () {
             Route::get('/associations/stats', [AssociationController::class, 'stats']);
             Route::get('/associations', [AssociationController::class, 'index']);

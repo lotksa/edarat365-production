@@ -432,7 +432,7 @@ class InvoiceController extends Controller
             $subtotal = (float) ($data['amount'] ?? $existing->amount ?? 0);
         }
 
-        $tax = $this->invoiceTaxSettings();
+        $tax = $this->invoiceTaxSettings((int) ($data['association_id'] ?? $existing?->association_id ?? app(\App\Services\AssociationContext::class)->id));
         $vatRate = $tax['vat_enabled']
             ? (float) ($data['vat_rate'] ?? $existing->vat_rate ?? $tax['vat_rate'])
             : 0.0;
@@ -465,15 +465,10 @@ class InvoiceController extends Controller
         return round($subtotal, 2);
     }
 
-    private function invoiceTaxSettings(): array
+    private function invoiceTaxSettings(int $associationId): array
     {
-        $settings = Setting::getByKey('invoice_settings', []);
-        $tax = $settings['tax'] ?? [];
-
-        return [
-            'vat_enabled' => filter_var($tax['vat_enabled'] ?? true, FILTER_VALIDATE_BOOLEAN),
-            'vat_rate'    => (float) ($tax['vat_rate'] ?? 15),
-        ];
+        $association = \App\Models\Association::findOrFail($associationId);
+        return app(\App\Services\AssociationInvoiceSettings::class)->forAssociation($association);
     }
 
     private function normalizeInvoiceScope(array &$data, ?Invoice $existing = null): void

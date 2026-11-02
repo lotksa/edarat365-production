@@ -4,9 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Invoice;
-use App\Models\Setting;
+use App\Models\Association;
+use App\Services\AssociationInvoiceSettings;
+use App\Services\InvoiceQr;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 
 class InvoicePdfController extends Controller
 {
@@ -14,22 +15,15 @@ class InvoicePdfController extends Controller
     {
         $invoice = Invoice::with(['association', 'property', 'owner', 'unit', 'tenant'])->findOrFail($id);
 
-        $invoiceSettings = Setting::getByKey('invoice_settings', []);
-        $tax = $invoiceSettings['tax'] ?? [];
-        $generalSettings = Setting::getByKey('general', []);
         $associationBranding = app(\App\Services\AssociationBranding::class)->forRecord($invoice);
-
-        $sellerName = $tax['company_name_ar'] ?? ($generalSettings['site_name_ar'] ?? 'إدارات 365');
-        $vatNumber  = $tax['vat_number'] ?? '';
-        $invoiceDate = $invoice->issue_date ?? $invoice->created_at?->toDateString() ?? now()->toDateString();
+        $association = Association::findOrFail($associationBranding['id']);
+        $tax = app(AssociationInvoiceSettings::class)->forAssociation($association);
+        $qr = app(InvoiceQr::class);
+        $invoiceDate = $invoice->issue_date?->toDateString() ?? $invoice->created_at?->toDateString();
         $totalWithVat = (float) ($invoice->total_amount ?? 0);
         $vatAmount = (float) ($invoice->tax_amount ?? 0);
-
-        $vatEnabled = filter_var($tax['vat_enabled'] ?? true, FILTER_VALIDATE_BOOLEAN);
-        $zatcaEnabled = $vatEnabled && filter_var($tax['zatca_enabled'] ?? true, FILTER_VALIDATE_BOOLEAN);
-        $zatcaQr = $zatcaEnabled
-            ? $this->generateZatcaQr($sellerName, $vatNumber, $invoiceDate, $totalWithVat, $vatAmount)
-            : '';
+        $vatEnabled = $tax['vat_enabled'];
+        $zatcaQr = $qr->taxPayload($invoice, $tax);
 
         $lineItems = is_array($invoice->line_items) ? $invoice->line_items : [];
 
@@ -39,6 +33,7 @@ class InvoicePdfController extends Controller
                 'id'             => $invoice->id,
                 'invoice_number' => $invoice->invoice_number,
                 'issue_date'     => $invoiceDate,
+                'issued_at'      => $invoice->issued_at?->toIso8601String(),
                 'due_date'       => $invoice->due_date?->toDateString(),
                 'payment_date'   => $invoice->payment_date,
                 'status'         => $invoice->status,
@@ -62,47 +57,24 @@ class InvoicePdfController extends Controller
             'property' => ['name' => $invoice->property?->name ?? $invoice->unit?->property?->name ?? ''],
             'unit' => ['unit_number' => $invoice->unit?->unit_number ?? ''],
             'company' => [
-                'name_ar'       => $tax['company_name_ar'] ?? ($generalSettings['site_name_ar'] ?? 'إدارات 365'),
-                'name_en'       => $tax['company_name_en'] ?? ($generalSettings['site_name_en'] ?? 'Edarat365'),
+                'name_ar'       => $tax['company_name_ar'],
+                'name_en'       => $tax['company_name_en'],
                 'address_ar'    => $tax['company_address_ar'] ?? '',
                 'address_en'    => $tax['company_address_en'] ?? '',
-                'vat_number'    => $vatNumber,
+                'vat_number'    => $vatEnabled ? $tax['vat_number'] : '',
                 'cr_number'     => $tax['commercial_registration'] ?? '',
                 'logo'          => $associationBranding['logo'] ?? $associationBranding['icon'] ?? null,
             ],
             'tax' => [
                 'vat_enabled'      => $vatEnabled,
                 'vat_rate'         => (float) ($tax['vat_rate'] ?? 15),
-                'zatca_enabled'    => $zatcaEnabled,
-                'zatca_phase'      => $tax['zatca_phase'] ?? '2',
-                'legal_text_ar'    => $tax['zatca_legal_text_ar'] ?? '',
-                'legal_text_en'    => $tax['zatca_legal_text_en'] ?? '',
+                'zatca_enabled'    => $zatcaQr !== '',
+                'zatca_phase'      => '1',
+                'legal_text_ar'    => '',
+                'legal_text_en'    => '',
             ],
+            'qr' => ['view_url' => $qr->viewUrl($invoice, $association->id)],
             'zatca_qr' => $zatcaQr,
         ]);
-    }
-
-    /**
-     * ZATCA Phase 2 TLV QR code (base64-encoded).
-     * Tags: 1=Seller, 2=VAT Number, 3=Timestamp, 4=Total, 5=VAT Amount
-     */
-    private function generateZatcaQr(string $seller, string $vatNumber, string $date, float $total, float $vat): string
-    {
-        $timestamp = $date . 'T00:00:00Z';
-
-        $tlv  = $this->tlvEncode(1, $seller);
-        $tlv .= $this->tlvEncode(2, $vatNumber);
-        $tlv .= $this->tlvEncode(3, $timestamp);
-        $tlv .= $this->tlvEncode(4, number_format($total, 2, '.', ''));
-        $tlv .= $this->tlvEncode(5, number_format($vat, 2, '.', ''));
-
-        return base64_encode($tlv);
-    }
-
-    private function tlvEncode(int $tag, string $value): string
-    {
-        $valueBytes = $value;
-        $length = strlen($valueBytes);
-        return chr($tag) . chr($length) . $valueBytes;
     }
 }
