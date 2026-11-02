@@ -1,25 +1,22 @@
 {
-  "release": "2026-11-02-login-repair",
-  "previous_commit": "a6ed2861af313b3b492a699ccf491c6c5886919b",
+  "release": "2026-11-02-table-ui",
+  "previous_commit": "21deb06978ade5541a53c8dd889b6caef7d629d6",
   "migrations": [],
   "files": {
-    "laravel-app/app/Http/Controllers/Api/AuthController.php": "a834261e37cf32c672ed5a62e4b41db41643af1e4cab70121129982504c9ab56",
-    "laravel-app/tools/release-guard.php": "aed63b710eed88721e56b39e6992cb1b59e59927391971e00441fd54809f2f9d",
-    "public_html/index.html": "8f512c51a36237d5a3b4112c1c00f25ca3cffd3e0d5dc304ba0320f4010113e1",
-    "public_html/assets/AssociationSettingsView-B0K6EJSv.js": "28b70ad18b6d3b5de1ccd41dbf769694a777a0ad082f621d5f94c290e3f9f9b3",
+    "public_html/index.html": "db993d7235999f9a2139a874ea7499ef325349f70cf2f389c8c715e7ccc6fe22",
+    "public_html/assets/AssociationSettingsView-BhG4XLYO.js": "e44b64206f9ece2c2b1f7ee88730c831261308d9d95fc7613c8fb7f89a7f048c",
     "public_html/assets/AssociationSettingsView-Dvq4fAeM.css": "f0b5d20eb3c655e6f78043768df192da6555c5ad0e40edff510df751494be374",
     "public_html/assets/auth-CEDmDBvV.js": "cc6bc61a4614e6754dbe168a51d34fed7d4e8fb8fc879c389c01a21f66384c67",
-    "public_html/assets/executive-layout-CbIb69-g.js": "452c48be3bdd761c020dcc9b88892a2c1c6aae7ea4ff7b8555950053d98e7a42",
-    "public_html/assets/executive-layout-DiJv48o7.css": "0fa25060b0b64d982c1c72174efe69a1d603eecddd0df570cb0f838aa1a7f53d",
-    "public_html/assets/ExecutiveView-ceewllxw.js": "9f87d0aab41b72a1ac0842bac0131e429dc8476c8cc006023fac7a125649dbbd",
-    "public_html/assets/index-ClF2gtyV.css": "2ca1a0bdc8ce6c976a20e040298505a3f068c3207a41f44ffe3ca8bdcc35a394",
-    "public_html/assets/index-ewmnA8ps.js": "328a5661913cfeee1040461c0893588f4cd2973882884398c57049e067d278f9",
-    "public_html/assets/NotificationsView-BGJhxAt9.js": "04229cea2abf6bad029e91c54bff1f00a6f2ecb4a5a3dc2ee200820cd6ac5b58",
+    "public_html/assets/executive-layout-B8LWJUDC.js": "c88868dd334f7519adafdfe07d274a6ad20f6486ee2096c83727b4a1565cb9a2",
+    "public_html/assets/executive-layout-Byu29MGf.css": "63a2af98d1c779a9788411b2465cdb0b70794e3cdc5ff8008294956fef39173f",
+    "public_html/assets/ExecutiveView-mFPTrvCj.js": "07ef3e030808b2e27a74e827cfcecf06d61240d822fd954c4cb0196692579ccf",
+    "public_html/assets/index-B15l4s9D.css": "02592f1375e3b3e9b2e9115ba2554cecc7e956835cbd66019ad2805bf53e4606",
+    "public_html/assets/index-D4zvrJE-.js": "f2fafc9603d25fab88724bd977a379bbd56461a1cadee3735ea6fd14b61360c3",
     "public_html/assets/NotificationsView-CtmBWzf6.css": "57a7f4a45df97428690f4d0efef3b4d0ef52c00dba477ca0a8944471c18edf5a",
+    "public_html/assets/NotificationsView-d5EsnWzS.js": "06445563bb4ad0d6c1c05b2dd91fcdb3161cb540c28316336a554c4acc615d20",
     "public_html/assets/PrintDocumentView-B1sx5AUQ.css": "5a5a4dad6a4f5086eaa9261f867a65400629c9c7ec9ef87697955af10b118dac",
-    "public_html/assets/PrintDocumentView-hMl6TvXm.js": "530d3ace381bfd03d41b224de34d52d29c1b35876f7950695d8a2aa67cb2f70f",
-    "public_html/assets/SettingsFollowup-2xbXAXNZ.js": "738e3ae459c04356d6a570eb3889996d5ad1c45beaf26abbeee2b553d61ba1c7",
+    "public_html/assets/PrintDocumentView-BEZaUj0z.js": "7eb1a5cdfa7c2e277d5f0a9ce3180461fc5493b7f9a61e6c60340e20d69b8f42",
+    "public_html/assets/SettingsFollowup-Cmn4JBLQ.js": "b25f3888166dfc641393c556b6f34b7b8ef2254a430c651709a3ae8637a8eeef",
     "public_html/assets/_plugin-vue_export-helper-BgX_cv8E.js": "bb69873025b85c609a5c95bd652abd73601fbb2d06197253f0f39f19708ab4e4"
-  },
-  "source_commit": "4ea2f18392d1b947fdcbbf4cde7409f3b8006641"
+  }
 }
