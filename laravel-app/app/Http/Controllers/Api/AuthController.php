@@ -310,31 +310,38 @@ class AuthController extends Controller
                 'reason' => 'cooldown',
             ], $user, $identifier, null, $request);
             return response()->json([
-                'message'           => 'Verification code sent',
+                'message'           => 'Please wait before requesting another code',
                 'channel'           => $channel,
                 'purpose'           => $purpose,
                 'masked_identifier' => $this->maskIdentifier($identifier, $channel),
                 ...$this->otpTiming($existingOtp),
                 'delivered'         => false,
+                'delivery_status'   => 'cooldown',
+                'retry_after_seconds' => max(1, min(30, (int) cache()->get($cooldownKey) - now()->timestamp)),
             ]);
         }
-        cache()->put($cooldownKey, 1, now()->addSeconds(30));
+        cache()->put($cooldownKey, now()->addSeconds(30)->timestamp, now()->addSeconds(30));
 
         $otp = $this->otp->createOtp($identifier, $channel, $purpose, 10);
         $delivery = $this->otp->send($otp, $user->name);
+        $accepted = (bool) ($delivery['sent'] ?? false);
 
-        SecurityAuditLog::record('auth.otp.requested', 'success', [
+        SecurityAuditLog::record('auth.otp.requested', $accepted ? 'success' : 'failed', [
             'channel' => $channel,
             'purpose' => $purpose,
+            ...($accepted ? [] : ['reason' => 'delivery_failed']),
         ], $user, $identifier, null, $request);
 
         $response = [
-            'message'           => 'Verification code sent',
+            // SMTP acceptance is not confirmation that the recipient's inbox received it.
+            'message'           => $accepted ? 'Verification code submitted for delivery' : 'Verification code could not be sent. Please try again shortly.',
             'channel'           => $channel,
             'purpose'           => $purpose,
             'masked_identifier' => $this->maskIdentifier($identifier, $channel),
             ...$this->otpTiming($otp),
-            'delivered'         => $delivery['sent'] ?? false,
+            'delivered'         => $accepted,
+            'delivery_status'   => $accepted ? 'accepted' : 'failed',
+            'retry_after_seconds' => 30,
         ];
 
         $previewCode = $this->otp->previewCode($otp);
@@ -342,7 +349,7 @@ class AuthController extends Controller
             $response['otp_preview'] = $previewCode;
         }
 
-        return response()->json($response);
+        return response()->json($response, $accepted ? 200 : 503);
     }
 
     private function otpTiming(?LoginOtp $otp): array

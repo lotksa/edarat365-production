@@ -176,7 +176,8 @@ function deployRelease(string $directory): void
     $manifest = json_decode(file_get_contents(LIVE_REPO.'/release-manifest.json'), true, 512, JSON_THROW_ON_ERROR);
     requireRelease($backup['repo_commit'] === $manifest['previous_commit'], 'Backup does not match release parent');
     requireRelease(trim(runRelease(['git', '-C', LIVE_REPO, 'status', '--porcelain'])) === '', 'Server checkout must be clean');
-    $allowedMigrations = ['2026_11_01_000001_add_meeting_followup.php', '2026_11_01_000002_add_association_brand_icon.php'];
+    // Login delivery/recovery release: code and assets only; no schema changes.
+    $allowedMigrations = [];
     requireRelease($manifest['migrations'] === $allowedMigrations, 'Unexpected migration list');
     foreach ($manifest['files'] as $relative => $digest) {
         requireRelease((bool) preg_match('#^(laravel-app/(app|routes|resources|tools|database/(?:migrations|seeders))/[a-zA-Z0-9_./-]+|public_html/(assets/[a-zA-Z0-9_.-]+|index.html))$#D', $relative) && ! str_contains($relative, '..'), 'Unreviewed release path');
