@@ -68,6 +68,10 @@ class Client implements ClientInterface, \Psr\Http\Client\ClientInterface
      *   fallback receives the cap as a marker only: it rejects enabled
      *   response streaming ("stream" => true) and does not limit overlapping
      *   buffered calls.
+     * - max_idle_handles: (int|null) Maximum number of idle cURL easy handles
+     *   retained by each default cURL handler. Zero disables retention; null or
+     *   omission keeps the defaults of 3 for CurlHandler and 50 for
+     *   CurlMultiHandler. This setting does not affect the stream handler.
      * - max_total_connections: (int|null) Maximum concurrent connections
      *   overall, enforced by the default CurlMultiHandler. The default stream
      *   fallback receives the cap as a marker only: it rejects enabled
@@ -84,6 +88,7 @@ class Client implements ClientInterface, \Psr\Http\Client\ClientInterface
      *     base_uri?: string|UriInterface,
      *     transport_sharing?: string|null,
      *     max_host_connections?: int|null,
+     *     max_idle_handles?: int|null,
      *     max_total_connections?: int|null,
      *     allow_redirects?: bool|array{
      *         max?: int,
@@ -165,13 +170,13 @@ class Client implements ClientInterface, \Psr\Http\Client\ClientInterface
         array $config = []
     ) {
         $handlerOptions = [];
-        foreach (['max_host_connections', 'max_total_connections'] as $capOption) {
-            if (\array_key_exists($capOption, $config)) {
-                if ($config[$capOption] !== null) {
-                    $handlerOptions[$capOption] = $config[$capOption];
+        foreach (['max_host_connections', 'max_idle_handles', 'max_total_connections'] as $handlerOption) {
+            if (\array_key_exists($handlerOption, $config)) {
+                if ($config[$handlerOption] !== null) {
+                    $handlerOptions[$handlerOption] = $config[$handlerOption];
                 }
 
-                unset($config[$capOption]);
+                unset($config[$handlerOption]);
             }
         }
 
@@ -197,6 +202,8 @@ class Client implements ClientInterface, \Psr\Http\Client\ClientInterface
                 : HandlerStack::create(Utils::chooseHandler($handlerOptions));
         } elseif (!\is_callable($config['handler'])) {
             throw new InvalidArgumentException('handler must be a callable');
+        } elseif (isset($handlerOptions['max_idle_handles'])) {
+            throw new InvalidArgumentException('The "max_idle_handles" client option requires Guzzle to create the default handler. Configure the option on the CurlHandler or CurlMultiHandler constructor when providing a custom handler.');
         } elseif ($handlerOptions !== []) {
             throw new InvalidArgumentException('The "max_host_connections" and "max_total_connections" client options require Guzzle to create the default handler. Configure the options on the CurlMultiHandler constructor for numeric enforcement, or on the StreamHandler constructor to reject enabled response streaming, when providing a custom handler.');
         } elseif ($transportSharingMode === TransportSharing::HANDLER_REQUIRE) {
@@ -551,6 +558,11 @@ class Client implements ClientInterface, \Psr\Http\Client\ClientInterface
         $uri = self::createUri($uri, $uriFactory);
         $builtUri = $this->buildUri($uri, $options);
         if ($uriIsString && $builtUri !== $uri) {
+            // The string form of an invalid host can name another host or port.
+            if (!Psr7\Rfc3986::isValidHost($builtUri->getHost())) {
+                throw new InvalidArgumentException(\sprintf('Invalid host: %s', DiagnosticValue::escape($builtUri->getHost())));
+            }
+
             $builtUri = self::createUri((string) $builtUri, $uriFactory);
         }
 
@@ -674,6 +686,11 @@ class Client implements ClientInterface, \Psr\Http\Client\ClientInterface
         return $option === null
             ? $this->config
             : ($this->config[$option] ?? null);
+    }
+
+    private static function defaultUserAgent(): string
+    {
+        return sprintf('GuzzleHttp/%d', ClientInterface::MAJOR_VERSION);
     }
 
     private function buildUri(
@@ -887,7 +904,7 @@ class Client implements ClientInterface, \Psr\Http\Client\ClientInterface
 
         // Add the default user-agent header.
         if (!isset($this->config['headers'])) {
-            $this->config['headers'] = ['User-Agent' => Utils::defaultUserAgent()];
+            $this->config['headers'] = ['User-Agent' => self::defaultUserAgent()];
         } else {
             self::assertHeaderOptionTypes($this->config['headers']);
 
@@ -901,7 +918,7 @@ class Client implements ClientInterface, \Psr\Http\Client\ClientInterface
             }
 
             if (!$hasUserAgent) {
-                $this->config['headers']['User-Agent'] = Utils::defaultUserAgent();
+                $this->config['headers']['User-Agent'] = self::defaultUserAgent();
             }
         }
     }

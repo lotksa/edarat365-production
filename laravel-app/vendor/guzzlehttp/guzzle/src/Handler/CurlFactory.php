@@ -26,7 +26,6 @@ use GuzzleHttp\Psr7\LazyOpenStream;
 use GuzzleHttp\RequestOptions;
 use GuzzleHttp\TransferStats;
 use GuzzleHttp\TransportSharing;
-use GuzzleHttp\Utils;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamFactoryInterface;
@@ -254,6 +253,10 @@ final class CurlFactory implements CurlFactoryInterface
     ): EasyHandle {
         $this->assertOpen();
         self::validateRequestUriScheme($request);
+
+        if (\strpbrk($request->getMethod(), "\r\n") !== false) {
+            throw new RequestException('HTTP method must not contain a carriage return or line feed.', $request);
+        }
 
         $protocolVersion = $request->getProtocolVersion();
 
@@ -591,6 +594,24 @@ final class CurlFactory implements CurlFactoryInterface
 
         if (!\in_array($scheme, ['http', 'https', 'socks4', 'socks4a', 'socks5', 'socks5h'], true)) {
             throw new InvalidArgumentException(\sprintf('The "%s" proxy scheme is not supported by the cURL handler.', Psr7\DiagnosticValue::escape($scheme)));
+        }
+
+        // libcurl 7.76.0-8.17.0 skips a proxy with undecodable credentials.
+        if (\preg_match('/%[01][0-9A-Fa-f]/', \substr($selectedProxy, 0, (int) \strrpos($selectedProxy, '@'))) !== 0) {
+            throw new InvalidArgumentException('Proxy credentials must not contain percent-encoded control characters.');
+        }
+
+        // libcurl before 7.65.0 reads the proxy host after the first '@'.
+        if (\substr_count($selectedProxy, '@') > 1) {
+            throw new InvalidArgumentException('Invalid proxy URL.');
+        }
+
+        $authority = \explode('://', $selectedProxy, 2)[1] ?? $selectedProxy;
+        $host = \explode('@', $authority, 2)[1] ?? $authority;
+
+        // libcurl 7.47.0-7.51.0 skips a proxy with a host of '.'.
+        if (\preg_match('#^\.(?:[:/]|$)#D', $host) !== 0) {
+            throw new InvalidArgumentException('Invalid proxy URL.');
         }
 
         if ($scheme === 'https' && !CurlVersion::supportsHttpsProxy()) {
@@ -1412,7 +1433,7 @@ final class CurlFactory implements CurlFactoryInterface
         );
 
         if ('' !== $sanitizedError) {
-            $safeUri = Psr7\Utils::redactUriForMessage($uri);
+            $safeUri = Psr7\UriRedactor::redactUriForMessage($uri);
             if ($safeUri !== '' && false === \strpos($sanitizedError, $safeUri)) {
                 $message .= \sprintf(' for %s', $safeUri);
             }
@@ -1525,7 +1546,7 @@ final class CurlFactory implements CurlFactoryInterface
             return $error;
         }
 
-        return Psr7\Utils::redactUserInfoInString($error, $proxy);
+        return Psr7\UriRedactor::redactUserInfoInString($error, $proxy);
     }
 
     /**
@@ -2161,7 +2182,7 @@ final class CurlFactory implements CurlFactoryInterface
         EasyHandle $easy
     ): array {
         $uri = $easy->request->getUri();
-        $protocols = Utils::normalizeProtocols($easy->options['protocols'] ?? ['http', 'https']);
+        $protocols = Protocols::normalize($easy->options['protocols'] ?? ['http', 'https']);
         $scheme = $uri->getScheme();
         if (!\in_array($scheme, $protocols, true)) {
             throw new RequestException(\sprintf('The scheme "%s" is not allowed by the protocols request option.', Psr7\DiagnosticValue::escape($scheme)), $easy->request);
@@ -2508,6 +2529,10 @@ final class CurlFactory implements CurlFactoryInterface
 
             foreach ($values as $value) {
                 $value = (string) $value;
+                if (\strpos("$name$value", "\0") !== false) {
+                    throw new RequestException('Request header fields must not contain a NUL byte.', $easy->request);
+                }
+
                 if ($value === '') {
                     // cURL requires a special format for empty headers.
                     // See https://github.com/guzzle/guzzle/issues/1882 for more details.
@@ -2856,7 +2881,7 @@ final class CurlFactory implements CurlFactoryInterface
         }
 
         if (!empty($options['debug'])) {
-            $conf[\CURLOPT_STDERR] = Utils::debugResource($options['debug']);
+            $conf[\CURLOPT_STDERR] = DebugResource::from($options['debug']);
             $conf[\CURLOPT_VERBOSE] = true;
         }
     }

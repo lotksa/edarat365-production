@@ -25,10 +25,11 @@ edarat365-production/
 The `.cpanel.yml` will automatically copy files to the right locations.
 
 Then follow `DEPLOYMENT_GUIDE.md` for database setup and `.env` configuration.
-# Current release: login delivery and security-check recovery
 
-This release is limited by `release-manifest.json`. cPanel runs the existing PHP/Brotli security gate, then `laravel-app/tools/release-guard.php`.
+## PHP and application security update
 
-Before deploying, verify the live paths and create a fresh database dump (with routines/triggers/events), uploads archive and environment backup outside the application/web roots. The helper checks archive hashes and preserves a fingerprint of existing database rows and uploads. It copies only reviewed code/assets, runs no database migrations, and verifies data preservation afterward. It never runs seeders, cleanup commands, or storage-link replacement.
+The cPanel deployment requires EasyApache PHP 8.5.13 or a later 8.5 patch, disabled upload progress, and a verified Brotli decoder when cURL enables it. `release-manifest.json` records the checksums of the reviewed application, Composer dependencies, and frontend assets.
 
-The backup directory named in `.cpanel.yml` must contain a fresh `verified.json` created by the helper. A later release must use its own backup directory and manifest. Do not use `setup.sh` for updates of an existing installation.
+Before pulling the update, verify the live paths and use the existing release helper to create a fresh database dump, uploads archive, and environment backup outside the application and web roots. The backup directory for this release is `/home1/edarat/deploy-backups/edarat365-20261122-security-v1`.
+
+The deployment checks the backup and content hashes, briefly pauses API traffic while it activates the verified `vendor` directory, preserves the previous `vendor` directory in the backup, and verifies existing database rows and uploads after deployment. This update requires zero database migrations. Use the cPanel Git deployment for existing installations.

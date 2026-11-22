@@ -176,32 +176,25 @@ function deployRelease(string $directory): void
     $manifest = json_decode(file_get_contents(LIVE_REPO.'/release-manifest.json'), true, 512, JSON_THROW_ON_ERROR);
     requireRelease($backup['repo_commit'] === $manifest['previous_commit'], 'Backup does not match release parent');
     requireRelease(trim(runRelease(['git', '-C', LIVE_REPO, 'status', '--porcelain'])) === '', 'Server checkout must be clean');
-    $allowedMigrations = [
-        '2026_11_06_000001_add_owner_portal_role.php',
-        '2026_11_22_000001_add_endowment_workspaces.php',
-    ];
+    // Reviewed application release: code and assets only; no schema changes.
+    $allowedMigrations = [];
     requireRelease($manifest['migrations'] === $allowedMigrations, 'Unexpected migration list');
     foreach ($manifest['files'] as $relative => $digest) {
-        requireRelease((bool) preg_match('#^(laravel-app/((app|routes|resources|tools|database/(?:migrations|seeders))/[a-zA-Z0-9_./-]+|bootstrap/app\.php)|public_html/(assets/[a-zA-Z0-9_.-]+|index\.html|invoice-summary\.html))$#D', $relative) && ! str_contains($relative, '..'), 'Unreviewed release path');
+        requireRelease((bool) preg_match('#^(laravel-app/((app|routes|resources|tools|database/(?:migrations|seeders))/[a-zA-Z0-9_./-]+|composer\.(json|lock))|public_html/(assets/[a-zA-Z0-9_.-]+|index\.html|invoice-summary\.html))$#D', $relative) && ! str_contains($relative, '..'), 'Unreviewed release path');
         requireRelease(is_file(LIVE_REPO.'/'.$relative) && hash_file('sha256', LIVE_REPO.'/'.$relative) === $digest, 'Release source checksum mismatch');
     }
     verifySnapshot($backup['snapshot']);
-    $migrationFiles = [];
-    foreach ($allowedMigrations as $migration) {
-        $relative = 'laravel-app/database/migrations/'.$migration;
-        requireRelease(isset($manifest['files'][$relative]), 'Migration missing from release manifest');
-        $migrationFiles[$relative] = $manifest['files'][$relative];
-    }
-    // Add the columns and roles before installing application code that reads them.
-    foreach ($migrationFiles as $relative => $digest) {
-        installReleaseFile($directory, $relative, $digest);
-        echo runRelease([PHP_EXE, '-d', 'session.upload_progress.enabled=0', LIVE_APP.'/artisan', 'migrate', '--force', '--no-interaction', '--path=database/migrations/'.basename($relative)]);
+    if (isset($manifest['vendor'])) {
+        installReleaseVendor($directory, $manifest['vendor']);
     }
     $webEntries = [];
     foreach ($manifest['files'] as $relative => $digest) {
-        if (isset($migrationFiles[$relative])) continue;
         if (in_array($relative, ['public_html/index.html', 'public_html/invoice-summary.html'], true)) { $webEntries[$relative] = $digest; continue; }
         installReleaseFile($directory, $relative, $digest);
+    }
+    foreach ($allowedMigrations as $migration) {
+        requireRelease(isset($manifest['files']['laravel-app/database/migrations/'.$migration]), 'Migration missing from release manifest');
+        echo runRelease([PHP_EXE, '-d', 'session.upload_progress.enabled=0', LIVE_APP.'/artisan', 'migrate', '--force', '--no-interaction', '--path=database/migrations/'.$migration]);
     }
     foreach (['config:clear', 'route:clear', 'view:clear'] as $command) {
         echo runRelease([PHP_EXE, '-d', 'session.upload_progress.enabled=0', LIVE_APP.'/artisan', $command]);
@@ -214,6 +207,78 @@ function deployRelease(string $directory): void
     writeReleaseJson($directory.'/deployed.json', ['commit' => trim(runRelease(['git', '-C', LIVE_REPO, 'rev-parse', 'HEAD'])), 'verified_at' => time()] + $verified);
     echo json_encode($verified).PHP_EOL;
     echo "REVIEWED_RELEASE_DEPLOYED\n";
+}
+
+function verifyReleaseVendor(string $root, array $files): void
+{
+    requireRelease(realpath($root) === $root && isset($files['autoload.php'], $files['composer/installed.php']), 'Invalid vendor tree');
+    $entries = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST,
+    );
+    $count = 0;
+    foreach ($entries as $entry) {
+        requireRelease(! $entry->isLink(), 'Symlink in vendor tree');
+        if ($entry->isDir()) continue;
+
+        $path = $entry->getPathname();
+        $relative = substr($path, strlen($root) + 1);
+        requireRelease($entry->isFile() && isset($files[$relative]) && hash_file('sha256', $path) === $files[$relative], 'Vendor checksum mismatch: '.$relative);
+        $count++;
+    }
+    requireRelease($count === count($files), 'Vendor file count mismatch');
+}
+
+function installReleaseVendor(string $backup, array $files): void
+{
+    $source = LIVE_REPO.'/laravel-app/vendor';
+    $target = LIVE_APP.'/vendor';
+    $staged = $backup.'/vendor-next';
+    $previous = $backup.'/vendor-before';
+    verifyReleaseVendor($source, $files);
+    requireRelease(realpath($target) === $target && is_file($target.'/autoload.php'), 'Unexpected live vendor path');
+
+    if (is_dir($previous)) {
+        requireRelease(realpath($previous) === $previous, 'Unexpected previous vendor path');
+        verifyReleaseVendor($target, $files);
+
+        return;
+    }
+
+    requireRelease(! is_link($staged) && ! file_exists($previous) && ! is_link($previous), 'Unexpected vendor staging path');
+    if (! is_dir($staged)) {
+        runRelease(['cp', '-a', '--', $source, $staged]);
+    }
+    verifyReleaseVendor($staged, $files);
+    requireRelease(stat($target)['dev'] === stat($staged)['dev'], 'Vendor directories must be on the same filesystem');
+    runRelease([PHP_EXE, '-r', 'require $argv[1];', $staged.'/autoload.php']);
+
+    $maintenance = LIVE_APP.'/storage/framework/maintenance.php';
+    requireRelease(config('app.maintenance.driver') === 'file' && ! app()->isDownForMaintenance() && ! file_exists($maintenance), 'Vendor switch needs file maintenance mode available');
+    $artisan = [PHP_EXE, '-d', 'session.upload_progress.enabled=0', LIVE_APP.'/artisan'];
+    $saved = false;
+    $activated = false;
+    try {
+        echo runRelease([...$artisan, 'down', '--render=errors::503']);
+        requireRelease(is_file($maintenance), 'Cannot pause API requests for vendor switch');
+        requireRelease(rename($target, $previous), 'Cannot preserve previous vendor directory');
+        $saved = true;
+        requireRelease(rename($staged, $target), 'Cannot activate verified vendor directory');
+        $activated = true;
+        echo runRelease([...$artisan, 'clear-compiled']);
+        echo runRelease([...$artisan, 'package:discover']);
+    } catch (Throwable $exception) {
+        if ($activated) requireRelease(rename($target, $staged), 'Cannot move failed vendor directory to staging');
+        if ($saved) {
+            requireRelease(rename($previous, $target), 'Cannot restore previous vendor directory');
+            echo runRelease([...$artisan, 'clear-compiled']);
+        }
+        throw $exception;
+    } finally {
+        if (is_file($target.'/autoload.php') && (is_file($maintenance) || is_file(LIVE_APP.'/storage/framework/down'))) {
+            echo runRelease([...$artisan, 'up']);
+        }
+    }
 }
 
 function installReleaseFile(string $backup, string $relative, string $digest): void

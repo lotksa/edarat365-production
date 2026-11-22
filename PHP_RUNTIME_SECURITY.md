@@ -1,12 +1,12 @@
 # PHP runtime security release policy
 
-PHP 8.5.12 remains the supported stable source release as reviewed on 27 October
-2026. The `8.5.12-1` announcement is a Windows dependency rebuild, not a Linux
-Docker tag or a new PHP source release. Do not use a release candidate on production.
+The application supports stable PHP 8.5.13+ and 8.6.x. Docker uses PHP 8.6.0.
+The cPanel release uses PHP 8.5.13 because EasyApache 4 currently provides
+`ea-php85` as its newest PHP branch.
 
 ## Required controls
 
-- PHP must be in the supported 8.5 branch, at least 8.5.12.
+- Use a PHP release that passes `tools/check-php-runtime.sh`.
 - Keep `session.upload_progress.enabled=0` at process startup, including the
   cPanel FPM pool override. Application-level `ini_set()` is insufficient.
 - Verify the Brotli decoder linked by PHP/cURL, not only PHP's version string.
@@ -22,8 +22,8 @@ Docker tag or a new PHP source release. Do not use a release candidate on produc
 
 ## Reviewed deployment
 
-The current AlmaLinux/cPanel installation has PHP 8.5.12 and local security
-backports in `brotli-1.0.9-10.el9_8.0.1.lotsecurity` and
+The October AlmaLinux/cPanel review found local security backports in
+`brotli-1.0.9-10.el9_8.0.1.lotsecurity` and
 `ea-brotli-1.0.9-2.2.11.cpanel.0.1.lotsecurity`. Both RPM changelogs record
 upstream fix `50a9b70` for CVE-2026-111497. Confirm RPM integrity and active worker
 library mappings on the server; the package names alone are not proof.
@@ -40,6 +40,9 @@ HTTP behavior.
 
 ## Primary references
 
+- https://www.php.net/ChangeLog-8.php#8.5.13
+- https://www.php.net/releases/8.6/en.php
+- https://docs.cpanel.net/changelogs/easyapache-4-change-log-25/#2598
 - https://www.php.net/archive/2026.php#2026-10-26-1
 - https://www.php.net/archive/2026.php#2026-10-23-1
 - https://github.com/google/brotli/releases/tag/v1.2.1

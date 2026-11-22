@@ -63,6 +63,14 @@ final class RowIterator implements RowIteratorInterface
     /** @var Row Contains the row currently processed */
     private Row $currentlyProcessedRow;
 
+    /**
+     * Cells of the row currently processed: the Row is built from them only once the row ends,
+     * as rebuilding it for every cell would make reading a row quadratic in its number of cells.
+     *
+     * @var array<int, Cell>
+     */
+    private array $currentlyProcessedCells = [];
+
     /** @var null|Row Buffer used to store the current row, while checking if there are more rows to read */
     private ?Row $rowBuffer = null;
 
@@ -259,7 +267,14 @@ final class RowIterator implements RowIteratorInterface
     {
         $this->currentlyProcessedRow = new Row([]);
 
-        $this->xmlProcessor->readUntilStopped();
+        $wasStoppedByCallback = $this->xmlProcessor->readUntilStopped();
+
+        // The XML reader may stop without error before the closing tag is found
+        // (e.g. libxml2 >= 2.15 after refusing to expand entities exceeding the amplification limit).
+        // Without this, the iterator would yield empty rows forever.
+        if (!$wasStoppedByCallback) {
+            $this->hasReachedEndOfFile = true;
+        }
 
         $this->rowBuffer = $this->currentlyProcessedRow;
     }
@@ -302,8 +317,7 @@ final class RowIterator implements RowIteratorInterface
             $numberOfColumnsForRow = (int) $numberOfColumnsForRow;
         }
 
-        $cells = array_fill(0, $numberOfColumnsForRow, Cell::fromValue(''));
-        $this->currentlyProcessedRow = $this->currentlyProcessedRow->withCells($cells);
+        $this->currentlyProcessedCells = array_fill(0, $numberOfColumnsForRow, Cell::fromValue(''));
 
         return XMLProcessor::PROCESSING_CONTINUE;
     }
@@ -317,14 +331,17 @@ final class RowIterator implements RowIteratorInterface
     {
         $currentColumnIndex = $this->getColumnIndex($xmlReader);
 
-        // NOTE: expand() will automatically decode all XML entities of the child nodes
-        $node = $xmlReader->expand();
-        \assert($node instanceof DOMElement);
-        $cell = $this->cellValueFormatter->extractAndFormatNodeValue($node);
+        // A self-closing cell has no value: skip expanding it, which is costly
+        if ($xmlReader->isEmptyElement) {
+            $cell = Cell::fromValue('');
+        } else {
+            // NOTE: expand() will automatically decode all XML entities of the child nodes
+            $node = $xmlReader->expand();
+            \assert($node instanceof DOMElement);
+            $cell = $this->cellValueFormatter->extractAndFormatNodeValue($node);
+        }
 
-        $cells = $this->currentlyProcessedRow->cells;
-        $cells[$currentColumnIndex] = $cell;
-        $this->currentlyProcessedRow = $this->currentlyProcessedRow->withCells($cells);
+        $this->currentlyProcessedCells[$currentColumnIndex] = $cell;
         $this->lastColumnIndexProcessed = $currentColumnIndex;
 
         return XMLProcessor::PROCESSING_CONTINUE;
@@ -335,6 +352,8 @@ final class RowIterator implements RowIteratorInterface
      */
     private function processRowEndingNode(): int
     {
+        $this->currentlyProcessedRow = $this->currentlyProcessedRow->withCells($this->currentlyProcessedCells);
+
         // if the fetched row is empty and we don't want to preserve it..,
         if (!$this->shouldPreserveEmptyRows && $this->currentlyProcessedRow->isEmpty()) {
             // ... skip it

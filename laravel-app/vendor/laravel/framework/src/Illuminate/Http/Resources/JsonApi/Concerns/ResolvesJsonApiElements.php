@@ -21,6 +21,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\LazyCollection;
 use Illuminate\Support\Str;
 use Illuminate\Support\Stringable;
+use JsonException;
 use JsonSerializable;
 use WeakMap;
 
@@ -316,6 +317,25 @@ trait ResolvesJsonApiElements
     }
 
     /**
+     * Load the requested relationships that are missing on the given models at once.
+     *
+     * @internal
+     */
+    public function loadMissingRequestedRelationshipsOn(JsonApiRequest $request, Collection $models): void
+    {
+        $requestedRelationships = (new Collection($this->requestedResourceRelationships($request)))
+            ->flatMap(fn ($relationship) => [
+                $relationship,
+                ...array_map(fn ($nested) => $relationship.'.'.$nested, $this->requestedResourceRelationships($request, $relationship)),
+            ])
+            ->all();
+
+        if (! empty($requestedRelationships)) {
+            $this->loadMissingRequestedRelationships($request, $models, static::class, $requestedRelationships);
+        }
+    }
+
+    /**
      * Load the requested relationships that are missing on the given related models.
      */
     protected function loadMissingRequestedRelationships(
@@ -442,20 +462,36 @@ trait ResolvesJsonApiElements
 
             array_push($this->loadedRelationshipsMap, ...($resourceInstance->loadedRelationshipsMap ?? []));
 
-            $relations->push(array_filter([
+            $included = array_filter([
                 'id' => $id,
                 'type' => $type,
-                '_uniqueKey' => implode(':', $isUnique === true ? [$id, $type] : [$id, $type, (string) Str::random()]),
                 'attributes' => Arr::get($relationsData, 'data.attributes'),
                 'relationships' => Arr::get($relationsData, 'data.relationships'),
                 'links' => Arr::get($relationsData, 'data.links'),
                 'meta' => Arr::get($relationsData, 'data.meta'),
-            ]));
+            ]);
+
+            $relations->push([
+                ...$included,
+                '_uniqueKey' => implode(':', $isUnique === true ? [$id, $type] : [$id, $type, $this->includedResourceHash($included)]),
+            ]);
 
             $index++;
         }
 
         return $relations;
+    }
+
+    /**
+     * Get a hash representing the encoded form of an included resource object.
+     */
+    protected function includedResourceHash(array $included): string
+    {
+        try {
+            return hash('xxh128', json_encode($included, JSON_THROW_ON_ERROR));
+        } catch (JsonException) {
+            return Str::random();
+        }
     }
 
     /**

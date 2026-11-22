@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace OpenSpout\Writer\Common\Entity;
 
-use OpenSpout\Common\Entity\Cell\ImageCell;
-
 /**
  * Entity describing a Worksheet.
  */
@@ -23,11 +21,11 @@ final class Worksheet
     /** @var int Maximum number of columns among all the written rows */
     private int $maxNumColumns = 0;
 
+    /** @var int<0, 7> Maximum outline level among all the written rows */
+    private int $maxRowOutlineLevel = 0;
+
     /** @var int Index of the last written row */
     private int $lastWrittenRowIndex = 0;
-
-    /** @var list<array{row: int, col: int, cell: ImageCell}> */
-    private array $images = [];
 
     /**
      * Worksheet constructor.
@@ -74,6 +72,22 @@ final class Worksheet
         $this->maxNumColumns = $maxNumColumns;
     }
 
+    /**
+     * @return int<0, 7>
+     */
+    public function getMaxRowOutlineLevel(): int
+    {
+        return $this->maxRowOutlineLevel;
+    }
+
+    /**
+     * @param int<0, 7> $maxRowOutlineLevel
+     */
+    public function setMaxRowOutlineLevel(int $maxRowOutlineLevel): void
+    {
+        $this->maxRowOutlineLevel = $maxRowOutlineLevel;
+    }
+
     public function getLastWrittenRowIndex(): int
     {
         return $this->lastWrittenRowIndex;
@@ -82,19 +96,6 @@ final class Worksheet
     public function setLastWrittenRowIndex(int $lastWrittenRowIndex): void
     {
         $this->lastWrittenRowIndex = $lastWrittenRowIndex;
-    }
-
-    public function addImage(int $row, int $col, ImageCell $cell): void
-    {
-        $this->images[] = ['row' => $row, 'col' => $col, 'cell' => $cell];
-    }
-
-    /**
-     * @return list<array{row: int, col: int, cell: ImageCell}>
-     */
-    public function getImages(): array
-    {
-        return $this->images;
     }
 
     /**

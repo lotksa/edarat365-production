@@ -65,8 +65,17 @@ final class Idn
                 throw new InvalidArgumentException($errorMessage);
             }
             if ($uri->getHost() !== $asciiHost) {
+                // The conversion can map a character to a URI delimiter.
+                if (!Psr7\Rfc3986::isValidHost($asciiHost)) {
+                    throw new InvalidArgumentException('IDN conversion failed');
+                }
+
                 // Replace URI only if the ASCII version is different
-                $uri = $uri->withHost($asciiHost);
+                try {
+                    $uri = $uri->withHost($asciiHost);
+                } catch (\InvalidArgumentException $e) {
+                    throw new InvalidArgumentException('IDN conversion failed', 0, $e);
+                }
             }
         }
 
@@ -79,7 +88,17 @@ final class Idn
     private static function idnToAsci(string $domain, int $options, ?array &$info = [])
     {
         if (\function_exists('idn_to_ascii') && \defined('INTL_IDNA_VARIANT_UTS46')) {
-            return \idn_to_ascii($domain, $options, \INTL_IDNA_VARIANT_UTS46, $info);
+            // ICU can take quadratic time, and no valid name needs more bytes.
+            if (\strlen($domain) > 4096) {
+                return false;
+            }
+
+            try {
+                return \idn_to_ascii($domain, $options, \INTL_IDNA_VARIANT_UTS46, $info);
+            } catch (\IntlException $e) {
+                // With intl.use_exceptions, a label too long to encode throws.
+                return false;
+            }
         }
 
         throw new \Error('ext-idn or symfony/polyfill-intl-idn not loaded or too old');

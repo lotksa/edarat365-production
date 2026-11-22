@@ -4,8 +4,8 @@ set -eu
 
 fail() { printf 'PHP security check failed: %s\n' "$*" >&2; exit 1; }
 php_exe=$(command -v "${PHP_BIN:-php}") || fail 'PHP executable missing'
-"$php_exe" -r 'exit(PHP_VERSION_ID >= 80512 && PHP_VERSION_ID < 80600 && in_array(ini_get("session.upload_progress.enabled"), ["", "0"], true) ? 0 : 1);' \
-    || fail 'require PHP 8.5.12+ (8.5 branch) and upload progress disabled at startup'
+"$php_exe" -r 'exit(PHP_VERSION_ID >= 80513 && PHP_VERSION_ID < 80700 && in_array(ini_get("session.upload_progress.enabled"), ["", "0"], true) ? 0 : 1);' \
+    || fail 'require PHP 8.5.13+ or 8.6.x and upload progress disabled at startup'
 "$php_exe" -r 'exit(extension_loaded("curl") ? 0 : 1);' || fail 'cURL extension missing'
 "$php_exe" -r 'echo "PHP=",PHP_VERSION," upload_progress=",ini_get("session.upload_progress.enabled"),PHP_EOL;'
 

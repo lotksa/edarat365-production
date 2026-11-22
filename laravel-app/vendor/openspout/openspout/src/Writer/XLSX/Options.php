@@ -6,6 +6,7 @@ namespace OpenSpout\Writer\XLSX;
 
 use OpenSpout\Common\Entity\Style\Style;
 use OpenSpout\Writer\Common\AbstractOptions;
+use OpenSpout\Writer\XLSX\Encryption\Password;
 use OpenSpout\Writer\XLSX\Options\HeaderFooter;
 use OpenSpout\Writer\XLSX\Options\PageMargin;
 use OpenSpout\Writer\XLSX\Options\PageSetup;
@@ -14,6 +15,7 @@ use OpenSpout\Writer\XLSX\Validation\DataValidationRuleInterface;
 use OpenSpout\Writer\XLSX\Validation\ValidationContainer;
 use OpenSpout\Writer\XLSX\Validation\ValidationDisplay;
 use OpenSpout\Writer\XLSX\Validation\ValidationRule;
+use SensitiveParameter;
 
 final readonly class Options extends AbstractOptions
 {
@@ -23,6 +25,10 @@ final readonly class Options extends AbstractOptions
     private MergeCellContainer $MERGE_CELLS;
     private ValidationContainer $VALIDATION_CELLS;
 
+    /**
+     * @param null|int    $compressionLevel Deflate level (0-9) for the compressed files of the archive; null keeps libzip's default
+     * @param null|string $password         UTF-8 encoded password, of 12 to 255 characters (see Password::generate()), that will be required to open the file: its content gets encrypted
+     */
     public function __construct(
         Style $FALLBACK_STYLE = new Style(
             fontSize: self::DEFAULT_FONT_SIZE,
@@ -38,13 +44,21 @@ final readonly class Options extends AbstractOptions
         public ?HeaderFooter $headerFooter = null,
         public ?WorkbookProtection $workbookProtection = null,
         public Properties $properties = new Properties(),
+        ?int $compressionLevel = null,
+        #[SensitiveParameter]
+        public ?string $password = null,
     ) {
+        if (null !== $password) {
+            Password::validate($password);
+        }
+
         parent::__construct(
             $FALLBACK_STYLE,
             $SHOULD_CREATE_NEW_SHEETS_AUTOMATICALLY,
             $DEFAULT_COLUMN_WIDTH,
             $DEFAULT_ROW_HEIGHT,
             $tempFolder,
+            $compressionLevel,
         );
 
         $this->MERGE_CELLS = new MergeCellContainer();
