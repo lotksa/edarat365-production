@@ -130,6 +130,8 @@ class AccountController extends Controller
         $data = $user->toArray();
         $data['permissions']     = $user->permissionKeys();
         $data['is_super_admin']  = $user->isSuperAdmin();
+        $data['is_owner']        = $user->isOwnerAccount();
+        $data['portal']          = $user->portal();
         $data['role_info']       = $user->userRole;
         return $data;
     }

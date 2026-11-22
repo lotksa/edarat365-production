@@ -73,11 +73,34 @@ Route::prefix('v1')->group(function () {
     Route::post('/auth/check-identity', [AuthController::class, 'checkIdentity'])
         ->middleware('auth.throttle:5,1,identity_check');
 
-    // ── Authenticated endpoints ───────────────────────────────────────────────
-    // SECURITY: every authenticated request runs through `idle.timeout` after
-    // Sanctum auth so a token that has been idle longer than the configured
-    // window (default 30 min) is revoked server-side.
-    Route::middleware(['auth:sanctum', 'idle.timeout', 'association.workspace'])->group(function () {
+    foreach (['owner', 'endowment'] as $portal) {
+        foreach (['login' => ['login', 5, 'login'],
+            'request-otp' => ['requestOtp', 3, 'otp_request'],
+            'verify-otp' => ['verifyOtp', 5, 'otp_verify'],
+            'check-identity' => ['checkIdentity', 5, 'identity_check']] as $path => [$action, $limit, $bucket]) {
+            Route::post("/{$portal}/auth/{$path}", [AuthController::class, $action])
+                ->defaults('auth_portal', $portal)->middleware("auth.throttle:{$limit},1,{$portal}_{$bucket}");
+        }
+
+        // Use the account's linked record for the portal scope on every request.
+        Route::prefix($portal)->middleware(['auth:sanctum', 'idle.timeout', 'owner.boundary'])->group(function () use ($portal) {
+            $controller = \App\Http\Controllers\Api\OwnerPortalController::class;
+            Route::get('/overview', [$controller, 'overview'])->defaults('customer_portal', $portal);
+            $resources = ['units' => 'unit', 'invoices' => 'invoice', 'contracts' => 'contract'];
+            if ($portal === 'endowment') {
+                $resources['properties'] = 'property';
+            }
+            foreach ($resources as $resource => $detail) {
+                Route::get('/'.$resource, [$controller, $resource])->defaults('customer_portal', $portal);
+                Route::get('/'.$resource.'/{id}', [$controller, $detail])->whereNumber('id')->defaults('customer_portal', $portal);
+            }
+            Route::get('/notifications', [$controller, 'notifications'])->defaults('customer_portal', $portal);
+            Route::post('/notifications/read-all', [$controller, 'readAll'])->defaults('customer_portal', $portal);
+            Route::post('/notifications/{id}/read', [$controller, 'read'])->whereNumber('id')->defaults('customer_portal', $portal);
+        });
+    }
+
+    Route::middleware(['auth:sanctum', 'idle.timeout', 'owner.boundary', 'association.workspace'])->group(function () {
 
         // Account / session (any authenticated user)
         Route::post('/auth/logout', [AuthController::class, 'logout']);
@@ -202,6 +225,10 @@ Route::prefix('v1')->group(function () {
             Route::get('/owners/{id}', [OwnerController::class, 'show']);
         });
         Route::post('/owners', [OwnerController::class, 'store'])->middleware('permission:owners.create');
+        Route::get('/owners/{id}/portal-access', [\App\Http\Controllers\Api\OwnerPortalAccessController::class, 'show'])
+            ->whereNumber('id')->middleware(['permission:owners.update', 'permission:users.view']);
+        Route::post('/owners/{id}/portal-access', [\App\Http\Controllers\Api\OwnerPortalAccessController::class, 'store'])
+            ->whereNumber('id')->middleware('permission:owners.update');
         Route::post('/owners/link-existing', [OwnerController::class, 'linkExisting'])->middleware('permission:owners.create');
         Route::post('/owners/import', [OwnerController::class, 'import'])->middleware('permission:owners.create');
         Route::post('/owners/bulk-delete', [OwnerController::class, 'bulkDelete'])->middleware('permission:owners.delete');

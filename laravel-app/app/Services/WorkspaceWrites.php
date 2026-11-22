@@ -29,13 +29,14 @@ final class WorkspaceWrites
         if ($request->isMethod('GET') || $request->isMethod('HEAD')) {
             return;
         }
-        $id = app(AssociationContext::class)->id;
+        $endowment = app(AssociationContext::class)->isEndowments();
+        $property = $endowment ? 'عقار من الوقف الحالي' : 'مبنى من الجمعية الحالية';
         if ($root === 'units' && $request->isMethod('POST') && $request->path() === 'api/v1/units'
             && ! $request->input('property_id')) {
-            throw ValidationException::withMessages(['property_id' => 'اختر مبنى من الجمعية الحالية']);
+            throw ValidationException::withMessages(['property_id' => 'اختر '.$property]);
         }
         if ($root === 'units' && $request->isMethod('PUT') && $request->has('property_id') && ! $request->input('property_id')) {
-            throw ValidationException::withMessages(['property_id' => 'يجب إبقاء الوحدة مرتبطة بمبنى من الجمعية الحالية']);
+            throw ValidationException::withMessages(['property_id' => 'يجب إبقاء الوحدة مرتبطة ب'.$property]);
         }
         $models = ['owners' => 'Owner', 'association-managers' => 'AssociationManager',
             'property-managers' => 'PropertyManager', 'tenants' => 'Tenant',
@@ -45,7 +46,7 @@ final class WorkspaceWrites
             $class = 'App\\Models\\'.$models[$root];
             foreach ($request->input('ids') as $value) {
                 if (! is_scalar($value) || ! $class::whereKey($value)->exists()) {
-                    throw ValidationException::withMessages(['ids' => 'القائمة تحتوي سجلاً خارج الجمعية الحالية']);
+                    throw ValidationException::withMessages(['ids' => $endowment ? 'القائمة تحتوي سجلاً خارج الوقف الحالي' : 'القائمة تحتوي سجلاً خارج الجمعية الحالية']);
                 }
                 $this->protectSharedPerson($class, (int) $value);
             }
@@ -106,13 +107,18 @@ final class WorkspaceWrites
         }
         $class = 'App\\Models\\'.$model;
         if (! is_scalar($value) || ! ctype_digit((string) $value) || ! $class::whereKey($value)->exists()) {
-            throw ValidationException::withMessages([$field => 'اختر سجلاً تابعًا للجمعية الحالية']);
+            $workspace = app(AssociationContext::class)->isEndowments() ? 'للوقف الحالي' : 'للجمعية الحالية';
+            throw ValidationException::withMessages([$field => 'اختر سجلاً تابعًا '.$workspace]);
         }
     }
 
     public function prepare(Model $model): void
     {
-        $id = app(AssociationContext::class)->id;
+        $context = app(AssociationContext::class);
+        if (! $model->exists && $context->section !== null && in_array($model->getTable(), ['associations', 'activity_logs', 'notifications'], true)) {
+            $model->section ??= $context->section;
+        }
+        $id = $context->id;
         if ($id === null) {
             return;
         }
@@ -120,11 +126,11 @@ final class WorkspaceWrites
             if (! $model->exists) {
                 $model->setAttribute('association_id', $id);
             } elseif ($model->isDirty('association_id') && (int) $model->association_id !== $id) {
-                throw ValidationException::withMessages(['association_id' => 'لا يمكن نقل السجل إلى جمعية أخرى من هذه المساحة']);
+                throw ValidationException::withMessages(['association_id' => $context->isEndowments() ? 'لا يمكن نقل السجل إلى وقف آخر من هذه المساحة' : 'لا يمكن نقل السجل إلى جمعية أخرى من هذه المساحة']);
             }
         }
         if ($model->getTable() === 'units' && ! $model->property_id) {
-            throw ValidationException::withMessages(['property_id' => 'يجب ربط الوحدة بمبنى من الجمعية الحالية']);
+            throw ValidationException::withMessages(['property_id' => $context->isEndowments() ? 'يجب ربط الوحدة بعقار من الوقف الحالي' : 'يجب ربط الوحدة بمبنى من الجمعية الحالية']);
         }
     }
 }

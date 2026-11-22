@@ -483,6 +483,9 @@ class Notifier
         $allActive = User::query()->where('is_active', true)->with('userRole.permissions:id,key')->get();
         $ids = [];
         foreach ($allActive as $u) {
+            if ($u->portal()) {
+                continue;
+            }
             $role = $u->userRole;
             if (!$role) {
                 continue;

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\AssociationContext;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Crypt;
 
@@ -29,9 +30,13 @@ class Setting extends Model
      * Returns the saved value with secret fields automatically decrypted.
      * Use this everywhere internally (OtpService, AiController, etc.).
      */
-    public static function getByKey(string $key, array $default = []): array
+    public static function getByKey(string $key, array $default = [], ?string $section = null): array
     {
-        $row = static::where('key', $key)->first();
+        $storageKey = static::storageKey($key, $section);
+        $row = static::where('key', $storageKey)->first();
+        if (! $row && $section === AssociationContext::ENDOWMENTS && $storageKey !== $key) {
+            $row = static::where('key', $key)->first();
+        }
         $value = $row?->value ?? $default;
 
         $secrets = self::SECRET_FIELDS[$key] ?? [];
@@ -54,8 +59,18 @@ class Setting extends Model
     public static function setByKey(string $key, array $value): static
     {
         return static::updateOrCreate(
-            ['key' => $key],
+            ['key' => static::storageKey($key)],
             ['value' => $value]
         );
+    }
+
+    public static function storageKey(string $key, ?string $section = null): string
+    {
+        $section ??= app(AssociationContext::class)->section;
+        if ($section === AssociationContext::ENDOWMENTS && ! in_array($key, ['auth_settings', 'turnstile'], true)) {
+            return 'endowments:'.$key;
+        }
+
+        return $key;
     }
 }

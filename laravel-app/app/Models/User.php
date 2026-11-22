@@ -101,6 +101,22 @@ class User extends Authenticatable
         return $this->hasOne(Owner::class, 'user_id');
     }
 
+    public function isOwnerAccount(): bool
+    {
+        return $this->portal() === 'owner';
+    }
+
+    public function portal(): ?string
+    {
+        $role = $this->relationLoaded('userRole') ? $this->userRole : $this->userRole()->first();
+
+        return match ($role?->key ?? $this->role) {
+            'owner' => 'owner',
+            'endowment_holder' => 'endowment',
+            default => null,
+        };
+    }
+
     /**
      * Resolves the best avatar URL for this user. Order of preference:
      *   1. Locally-uploaded file under storage/app/public/users/avatars

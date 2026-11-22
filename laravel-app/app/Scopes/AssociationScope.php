@@ -25,14 +25,14 @@ final class AssociationScope implements Scope
         'Resolution', 'PropertyDocument', 'PropertyComponent', 'UtilityMeter',
         'UnitComponent', 'UnitPrivatePart', 'UnitImage', 'CaseUpdate',
         'CasePermission', 'CaseMessage', 'CaseReminder', 'LegalRepresentative',
-        'ActivityLog', 'Notification',
+        'ActivityLog', 'Notification', 'MeetingFollowupReminder',
     ];
 
     public const DIRECT = [
         'properties', 'owners', 'tenants', 'association_managers', 'property_managers',
         'invoices', 'contracts', 'meetings', 'maintenance_requests', 'legal_cases',
         'facilities', 'bookings', 'votes', 'parking_spots', 'vehicles', 'transactions',
-        'vouchers', 'approval_requests', 'legal_representatives', 'activity_logs', 'notifications',
+        'vouchers', 'approval_requests', 'legal_representatives', 'activity_logs', 'notifications', 'meeting_followup_reminders',
     ];
 
     public const PEOPLE = ['owners', 'tenants', 'association_managers', 'property_managers', 'legal_representatives'];
@@ -68,9 +68,57 @@ final class AssociationScope implements Scope
 
     public function apply(Builder $builder, Model $model): void
     {
-        $id = app(AssociationContext::class)->id;
-        if ($id !== null) {
-            $this->constrain($builder->getQuery(), $model->getTable(), $id);
+        $context = app(AssociationContext::class);
+        $table = $model->getTable();
+        if ($context->section !== null) {
+            $this->constrainSection($builder->getQuery(), $table, $context->section, $context->id);
+        }
+        if ($context->id !== null && ! $context->isEndowments()) {
+            $this->constrain($builder->getQuery(), $table, $context->id);
+        }
+    }
+
+    public function constrainSection(Query $query, string $table, string $section, ?int $id = null): void
+    {
+        if ($table === 'associations') {
+            $query->where('associations.section', $section)->when($id, fn ($q) => $q->where('associations.id', $id));
+
+            return;
+        }
+        if (in_array($table, ['activity_logs', 'notifications'], true)) {
+            $query->where($table.'.section', $section);
+            if ($section === AssociationContext::ENDOWMENTS && $id !== null) {
+                $query->where($table.'.association_id', $id);
+            }
+
+            return;
+        }
+
+        $associationIds = DB::table('associations')->select('id')->where('section', AssociationContext::ENDOWMENTS);
+        if ($section === AssociationContext::ENDOWMENTS && $id !== null) {
+            $associationIds->where('id', $id);
+        }
+        $this->constrainByEndowment($query, $table, $associationIds, $section === AssociationContext::ENDOWMENTS);
+    }
+
+    private function constrainByEndowment(Query $query, string $table, Query $associationIds, bool $endowments): void
+    {
+        if (in_array($table, self::DIRECT, true)) {
+            $column = $table.'.association_id';
+            $ids = $associationIds;
+        } else {
+            $parents = self::PARENTS[$table];
+            $key = array_key_first($parents);
+            $parent = $parents[$key];
+            $column = $table.'.'.$key;
+            $ids = DB::table($parent)->select($parent.'.id');
+            $this->constrainByEndowment($ids, $parent, $associationIds, true);
+        }
+
+        if ($endowments) {
+            $query->whereIn($column, $ids);
+        } else {
+            $query->where(fn (Query $q) => $q->whereNull($column)->orWhereNotIn($column, $ids));
         }
     }
 

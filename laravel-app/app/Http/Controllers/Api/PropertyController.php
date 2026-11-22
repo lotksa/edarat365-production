@@ -18,6 +18,7 @@ use App\Models\Property;
 use App\Models\PropertyDocument;
 use App\Models\Setting;
 use App\Models\UtilityMeter;
+use App\Services\AssociationContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -105,12 +106,15 @@ class PropertyController extends Controller
 
     private function applyAssociationAddressDefaults(array $data, ?Property $property = null): array
     {
+        $endowment = app(AssociationContext::class)->isEndowments();
+        $workspace = $endowment ? 'الوقف' : 'الجمعية';
+        $asset = $endowment ? 'العقار' : 'المبنى';
         $associationId = $data['association_id'] ?? $property?->association_id;
         if (!$associationId) {
             $effectiveStatus = $data['status'] ?? $property?->status ?? 'active';
             if ($effectiveStatus !== 'draft') {
                 throw ValidationException::withMessages([
-                    'association_id' => 'اختيار الجمعية إلزامي لاعتماد موقع المبنى تلقائيًا.',
+                    'association_id' => "اختيار {$workspace} إلزامي لاعتماد موقع {$asset} تلقائيًا.",
                 ]);
             }
 
@@ -120,7 +124,7 @@ class PropertyController extends Controller
         $association = Association::with(['city', 'district'])->find($associationId);
         if (!$association) {
             throw ValidationException::withMessages([
-                'association_id' => 'الجمعية المحددة غير موجودة أو غير متاحة.',
+                'association_id' => $endowment ? 'الوقف المحدد غير موجود أو غير متاح.' : 'الجمعية المحددة غير موجودة أو غير متاحة.',
             ]);
         }
 
@@ -131,7 +135,7 @@ class PropertyController extends Controller
             || $this->isBlank($association->longitude)
         ) {
             throw ValidationException::withMessages([
-                'association_id' => 'يجب تعريف المدينة والحي وإحداثيات الخريطة في بيانات الجمعية قبل إنشاء أو تحديث المبنى.',
+                'association_id' => "يجب تعريف المدينة والحي وإحداثيات الخريطة في بيانات {$workspace} قبل إنشاء أو تحديث {$asset}.",
             ]);
         }
 

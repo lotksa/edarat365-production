@@ -174,6 +174,16 @@ class PermissionCatalog
                 'permissions' => $all,
             ],
             [
+                'key' => 'owner',
+                'name_ar' => 'مالك',
+                'name_en' => 'Owner',
+                'description_ar' => 'بوابة المالك: وحداته وفواتيره وعقوده وإشعاراته فقط',
+                'description_en' => 'Owner portal: own units, invoices, contracts and notifications only',
+                'color' => '#0891b2',
+                'is_system' => true,
+                'permissions' => [],
+            ],
+            [
                 'key' => 'admin',
                 'name_ar' => 'مشرف عام',
                 'name_en' => 'Admin',

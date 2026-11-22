@@ -126,6 +126,7 @@ final class WorkspaceController extends Controller
     {
         abort_unless($request->user()->isSuperAdmin(), 403);
         $data = $request->validate(['association_id' => ['required', 'integer', 'exists:associations,id']]);
+        Association::findOrFail($data['association_id']);
 
         return DB::transaction(function () use ($module, $id, $data) {
             $record = $this->unassignedQuery($module)->lockForUpdate()->findOrFail($id);

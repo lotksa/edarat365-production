@@ -297,7 +297,7 @@ class UnitController extends Controller
     {
         $unit = Unit::findOrFail($unitId);
         $data = $request->validate([
-            'components'                => ['required', 'array'],
+            'components'                => ['present', 'array'],
             'components.*.key'          => ['required', 'string'],
             'components.*.quantity'     => ['required', 'integer', 'min:0'],
         ]);

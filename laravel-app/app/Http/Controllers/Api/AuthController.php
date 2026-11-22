@@ -3,9 +3,13 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ActivityLog;
 use App\Models\LoginOtp;
+use App\Models\Owner;
 use App\Models\SecurityAuditLog;
 use App\Models\User;
+use App\Scopes\AssociationScope;
+use App\Services\AssociationContext;
 use App\Services\OtpService;
 use App\Services\TurnstileService;
 use Illuminate\Http\JsonResponse;
@@ -108,7 +112,7 @@ class AuthController extends Controller
 
         // Bot defense — same gate as `request-otp`. Each token is single-use
         // so an attacker can't mass-probe identifiers from a single solve.
-        $this->turnstile->assertVerified($request, TurnstileService::PAGE_ADMIN_LOGIN);
+        $this->turnstile->assertVerified($request, $this->turnstilePage($request));
 
         $identifier = $this->normalize($payload['identifier']);
         $channel = $this->otp->detectChannel($identifier);
@@ -147,7 +151,7 @@ class AuthController extends Controller
             ], 422);
         }
 
-        $user = $this->findUserByIdentifier($identifier);
+        $user = $this->findUserByIdentifier($identifier, $request);
         $registered = (bool) $user;
 
         SecurityAuditLog::record('auth.identity.check', $registered ? 'success' : 'failed', [
@@ -166,12 +170,39 @@ class AuthController extends Controller
         return Str::lower(trim($identifier));
     }
 
-    private function findUserByIdentifier(string $identifier): ?User
+    private function findUserByIdentifier(string $identifier, Request $request): ?User
     {
-        return User::query()
+        $user = User::query()
             ->where('email', $identifier)
             ->orWhere('phone', $identifier)
             ->first();
+
+        $portal = $request->route('auth_portal');
+        if ($portal) {
+            if (! $user || $user->portal() !== $portal || $user->is_active === false) return null;
+            $profiles = Owner::where('user_id', $user->id)->limit(2)->get(['status', 'association_id']);
+            if ($profiles->count() !== 1 || $profiles[0]->status !== 'active') return null;
+            $endowment = $profiles[0]->association?->section === AssociationContext::ENDOWMENTS;
+            if ($endowment !== ($portal === 'endowment')) return null;
+        } elseif ($user?->portal() === 'endowment') {
+            return null;
+        }
+
+        return $user;
+    }
+
+    private function loginPurpose(Request $request): string
+    {
+        return match ($request->route('auth_portal')) {
+            'owner' => OtpService::PURPOSE_OWNER_LOGIN,
+            'endowment' => OtpService::PURPOSE_ENDOWMENT_LOGIN,
+            default => OtpService::PURPOSE_LOGIN,
+        };
+    }
+
+    private function turnstilePage(Request $request): string
+    {
+        return $request->route('auth_portal') ? TurnstileService::PAGE_OWNER_LOGIN : TurnstileService::PAGE_ADMIN_LOGIN;
     }
 
     /**
@@ -227,22 +258,33 @@ class AuthController extends Controller
 
         SecurityAuditLog::record($event, 'success', [], $user, $user->email ?? $user->phone, null, $request);
 
-        // Mirror the auth event into the human-facing activity timeline so
-        // the per-user "Activity Log" tab on the User Detail page shows
-        // sign-ins next to module CRUD actions.
-        \App\Models\ActivityLog::create([
+        $this->recordSessionActivity($user, $request, 'login', 'تسجيل دخول إلى النظام', ['event' => $event]);
+    }
+
+    private function recordSessionActivity(User $user, Request $request, string $action, string $description, array $details = []): void
+    {
+        $entry = new ActivityLog([
             'subject_type' => 'user',
             'subject_id'   => $user->id,
-            'action'       => 'login',
-            'description'  => 'تسجيل دخول إلى النظام',
+            'action'       => $action,
+            'description'  => $description,
             'performer'    => $user->name,
             'performer_id' => $user->id,
             'new_values'   => [
                 'ip'      => $request->ip(),
-                'event'   => $event,
                 'agent'   => substr((string) $request->userAgent(), 0, 255),
-            ],
+            ] + $details,
         ]);
+
+        $portal = $user->portal();
+        if ($portal === 'endowment') {
+            $entry->section = AssociationContext::ENDOWMENTS;
+            $entry->association_id = Owner::withoutGlobalScope(AssociationScope::class)->where('user_id', $user->id)->value('association_id');
+        } elseif ($portal === 'owner') {
+            $entry->section = AssociationContext::OWNERS;
+        }
+
+        $entry->save();
     }
 
     public function requestOtp(Request $request): JsonResponse
@@ -254,10 +296,10 @@ class AuthController extends Controller
 
         // Bot defense — runs BEFORE we touch the DB or send any SMS/email so an
         // attacker cannot use this endpoint to enumerate accounts or pump SMS.
-        $this->turnstile->assertVerified($request, TurnstileService::PAGE_ADMIN_LOGIN);
+        $this->turnstile->assertVerified($request, $this->turnstilePage($request));
 
         $identifier = $this->normalize($payload['identifier']);
-        $purpose = $payload['purpose'] ?? OtpService::PURPOSE_LOGIN;
+        $purpose = $this->loginPurpose($request);
         $channel = $this->otp->detectChannel($identifier);
 
         // Enforce the admin-configured login-method toggles BEFORE looking the
@@ -283,7 +325,7 @@ class AuthController extends Controller
             ]);
         }
 
-        $user = $this->findUserByIdentifier($identifier);
+        $user = $this->findUserByIdentifier($identifier, $request);
         if (!$user) {
             // The platform owner has explicitly opted IN to user-enumeration on
             // the login page ("الحساب غير مسجل يرجى مراجعة الإدارة"). Turnstile
@@ -376,10 +418,10 @@ class AuthController extends Controller
         ]);
 
         $identifier = $this->normalize($payload['identifier']);
-        $purpose = OtpService::PURPOSE_LOGIN;
+        $purpose = $this->loginPurpose($request);
         $code = $payload['code'];
 
-        $user = $this->findUserByIdentifier($identifier);
+        $user = $this->findUserByIdentifier($identifier, $request);
         $this->assertNotLocked($user, $identifier);
 
         $otp = LoginOtp::query()
@@ -434,12 +476,12 @@ class AuthController extends Controller
             'password'   => ['required', 'string', 'min:1'],
         ]);
 
-        $this->turnstile->assertVerified($request, TurnstileService::PAGE_ADMIN_LOGIN);
+        $this->turnstile->assertVerified($request, $this->turnstilePage($request));
 
         $rawIdentifier = $credentials['identifier'] ?? $credentials['email'];
         $identifier = $this->normalize($rawIdentifier);
 
-        $user = $this->findUserByIdentifier($identifier);
+        $user = $this->findUserByIdentifier($identifier, $request);
         $this->assertNotLocked($user, $identifier);
 
         // Constant-time check even if user not found (avoid user-enumeration via timing).
@@ -486,19 +528,7 @@ class AuthController extends Controller
         if ($user) {
             SecurityAuditLog::record('auth.logout', 'success', [], $user, $user->email ?? $user->phone, null, $request);
 
-            // Mirror logout into the human-facing activity timeline.
-            \App\Models\ActivityLog::create([
-                'subject_type' => 'user',
-                'subject_id'   => $user->id,
-                'action'       => 'logout',
-                'description'  => 'تسجيل خروج من النظام',
-                'performer'    => $user->name,
-                'performer_id' => $user->id,
-                'new_values'   => [
-                    'ip'    => $request->ip(),
-                    'agent' => substr((string) $request->userAgent(), 0, 255),
-                ],
-            ]);
+            $this->recordSessionActivity($user, $request, 'logout', 'تسجيل خروج من النظام');
         }
 
         return response()->json([

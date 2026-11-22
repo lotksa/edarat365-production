@@ -10,6 +10,7 @@ use App\Models\District;
 use App\Models\Invoice;
 use App\Models\Owner;
 use App\Models\Setting;
+use App\Services\AssociationContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -230,7 +231,7 @@ class AssociationController extends Controller
             'name'                => [$isUpdate ? 'sometimes' : ($request->input('status') === 'draft' ? 'nullable' : 'required'), 'string', 'max:255'],
             'name_en'             => ['nullable', 'string', 'max:255'],
             'logo'                => ['nullable', 'image', 'max:2048'],
-            'registration_number' => ['nullable', 'string', 'max:255'],
+            'registration_number' => ['nullable', 'string', 'max:255', Rule::unique('associations', 'registration_number')->ignore($association?->id)],
             'association_number'  => ['nullable', 'string', 'max:255'],
             'established_date'    => ['nullable', 'date'],
             'first_approval_date' => ['nullable', 'date'],
@@ -272,10 +273,15 @@ class AssociationController extends Controller
 
     private static function arMessages(): array
     {
+        $endowment = app(AssociationContext::class)->isEndowments();
+        $name = $endowment ? 'اسم الوقف' : 'اسم الجمعية';
+        $workspace = $endowment ? 'الوقف' : 'الجمعية';
+
         return [
-            'name.required'          => 'اسم الجمعية مطلوب',
-            'name.string'            => 'اسم الجمعية يجب أن يكون نصاً',
-            'name.max'               => 'اسم الجمعية يجب ألا يتجاوز 255 حرفاً',
+            'name.required'          => $name.' مطلوب',
+            'name.string'            => $name.' يجب أن يكون نصاً',
+            'name.max'               => $name.' يجب ألا يتجاوز 255 حرفاً',
+            'registration_number.unique' => $endowment ? 'رقم صك الوقف مستخدم مسبقاً' : 'رقم تسجيل الجمعية مستخدم مسبقاً',
             'logo.image'             => 'الشعار يجب أن يكون صورة',
             'logo.max'               => 'حجم الشعار يجب ألا يتجاوز 2 ميجابايت',
             'status.in'              => 'الحالة غير صالحة',
@@ -286,15 +292,15 @@ class AssociationController extends Controller
             'city_id.exists'         => 'المدينة المحددة غير موجودة',
             'district_id.required'   => 'الحي مطلوب ضمن العنوان الوطني',
             'district_id.exists'     => 'الحي المحدد لا يتبع المدينة المختارة أو غير موجود',
-            'manager_id.exists'      => 'الرئيس المحدد غير موجود',
+            'manager_id.exists'      => $endowment ? 'الناظر المحدد غير موجود' : 'الرئيس المحدد غير موجود',
             'manager_salary.numeric' => 'الأجر يجب أن يكون رقماً',
             'manager_salary.min'     => 'الأجر يجب أن يكون أكبر من أو يساوي صفر',
             'commission_value.numeric' => 'قيمة العمولة يجب أن تكون رقماً',
             'commission_value.min'   => 'قيمة العمولة يجب أن تكون أكبر من أو يساوي صفر',
             'latitude.numeric'       => 'خط العرض يجب أن يكون رقماً',
             'longitude.numeric'      => 'خط الطول يجب أن يكون رقماً',
-            'has_national_address.required' => 'العنوان الوطني إلزامي عند إنشاء أو تفعيل الجمعية',
-            'has_national_address.accepted' => 'العنوان الوطني إلزامي عند إنشاء أو تفعيل الجمعية',
+            'has_national_address.required' => 'العنوان الوطني إلزامي عند إنشاء أو تفعيل '.$workspace,
+            'has_national_address.accepted' => 'العنوان الوطني إلزامي عند إنشاء أو تفعيل '.$workspace,
             'address_type.required'   => 'نوع العنوان الوطني مطلوب',
             'address_short_code.required' => 'رمز العنوان المختصر مطلوب',
             'address_region.required' => 'المنطقة مطلوبة في العنوان الوطني',
@@ -329,10 +335,18 @@ class AssociationController extends Controller
         }
 
         $association = Association::create($data);
-        ActivityLog::record('association', $association->id, 'created', 'تم إنشاء جمعية جديدة');
+        $context = app(AssociationContext::class);
+        $endowment = $context->isEndowments();
+        $selected = $context->id;
+        $context->id = $association->id;
+        try {
+            ActivityLog::record('association', $association->id, 'created', $endowment ? 'تم إنشاء وقف جديد' : 'تم إنشاء جمعية جديدة');
+        } finally {
+            $context->id = $selected;
+        }
 
         return response()->json([
-            'message' => 'تم إنشاء الجمعية بنجاح',
+            'message' => $endowment ? 'تم إنشاء الوقف بنجاح' : 'تم إنشاء الجمعية بنجاح',
             'data'    => $association->load(['manager', 'city', 'district']),
         ], 201);
     }
@@ -556,10 +570,14 @@ class AssociationController extends Controller
 
     private function guardWorkspaceOrigins(array $ids): void
     {
-        foreach (['owners', 'tenants', 'association_managers', 'property_managers', 'legal_representatives', 'vouchers', 'approval_requests'] as $table) {
+        $endowment = app(AssociationContext::class)->isEndowments();
+        $tables = $endowment
+            ? array_diff(\App\Scopes\AssociationScope::DIRECT, ['activity_logs', 'notifications'])
+            : ['owners', 'tenants', 'association_managers', 'property_managers', 'legal_representatives', 'vouchers', 'approval_requests'];
+        foreach ($tables as $table) {
             if (\Illuminate\Support\Facades\DB::table($table)->whereIn('association_id', $ids)->exists()) {
                 throw \Illuminate\Validation\ValidationException::withMessages([
-                    'association' => 'الجمعية تحتوي سجلات مرتبطة؛ لا يمكن حذفها مع وجود هذه البيانات',
+                    'association' => $endowment ? 'لا يمكن حذف الوقف مع وجود سجلات مرتبطة به' : 'الجمعية تحتوي سجلات مرتبطة؛ لا يمكن حذفها مع وجود هذه البيانات',
                 ]);
             }
         }

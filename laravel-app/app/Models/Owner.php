@@ -91,6 +91,11 @@ class Owner extends Model
         return $this->belongsTo(User::class);
     }
 
+    public function association(): BelongsTo
+    {
+        return $this->belongsTo(Association::class);
+    }
+
     public function units(): BelongsToMany
     {
         return $this->belongsToMany(Unit::class, 'unit_owners')

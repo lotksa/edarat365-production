@@ -176,22 +176,32 @@ function deployRelease(string $directory): void
     $manifest = json_decode(file_get_contents(LIVE_REPO.'/release-manifest.json'), true, 512, JSON_THROW_ON_ERROR);
     requireRelease($backup['repo_commit'] === $manifest['previous_commit'], 'Backup does not match release parent');
     requireRelease(trim(runRelease(['git', '-C', LIVE_REPO, 'status', '--porcelain'])) === '', 'Server checkout must be clean');
-    // Reviewed application release: code and assets only; no schema changes.
-    $allowedMigrations = [];
+    $allowedMigrations = [
+        '2026_11_06_000001_add_owner_portal_role.php',
+        '2026_11_22_000001_add_endowment_workspaces.php',
+    ];
     requireRelease($manifest['migrations'] === $allowedMigrations, 'Unexpected migration list');
     foreach ($manifest['files'] as $relative => $digest) {
-        requireRelease((bool) preg_match('#^(laravel-app/(app|routes|resources|tools|database/(?:migrations|seeders))/[a-zA-Z0-9_./-]+|public_html/(assets/[a-zA-Z0-9_.-]+|index\.html|invoice-summary\.html))$#D', $relative) && ! str_contains($relative, '..'), 'Unreviewed release path');
+        requireRelease((bool) preg_match('#^(laravel-app/((app|routes|resources|tools|database/(?:migrations|seeders))/[a-zA-Z0-9_./-]+|bootstrap/app\.php)|public_html/(assets/[a-zA-Z0-9_.-]+|index\.html|invoice-summary\.html))$#D', $relative) && ! str_contains($relative, '..'), 'Unreviewed release path');
         requireRelease(is_file(LIVE_REPO.'/'.$relative) && hash_file('sha256', LIVE_REPO.'/'.$relative) === $digest, 'Release source checksum mismatch');
     }
     verifySnapshot($backup['snapshot']);
+    $migrationFiles = [];
+    foreach ($allowedMigrations as $migration) {
+        $relative = 'laravel-app/database/migrations/'.$migration;
+        requireRelease(isset($manifest['files'][$relative]), 'Migration missing from release manifest');
+        $migrationFiles[$relative] = $manifest['files'][$relative];
+    }
+    // Add the columns and roles before installing application code that reads them.
+    foreach ($migrationFiles as $relative => $digest) {
+        installReleaseFile($directory, $relative, $digest);
+        echo runRelease([PHP_EXE, '-d', 'session.upload_progress.enabled=0', LIVE_APP.'/artisan', 'migrate', '--force', '--no-interaction', '--path=database/migrations/'.basename($relative)]);
+    }
     $webEntries = [];
     foreach ($manifest['files'] as $relative => $digest) {
+        if (isset($migrationFiles[$relative])) continue;
         if (in_array($relative, ['public_html/index.html', 'public_html/invoice-summary.html'], true)) { $webEntries[$relative] = $digest; continue; }
         installReleaseFile($directory, $relative, $digest);
-    }
-    foreach ($allowedMigrations as $migration) {
-        requireRelease(isset($manifest['files']['laravel-app/database/migrations/'.$migration]), 'Migration missing from release manifest');
-        echo runRelease([PHP_EXE, '-d', 'session.upload_progress.enabled=0', LIVE_APP.'/artisan', 'migrate', '--force', '--no-interaction', '--path=database/migrations/'.$migration]);
     }
     foreach (['config:clear', 'route:clear', 'view:clear'] as $command) {
         echo runRelease([PHP_EXE, '-d', 'session.upload_progress.enabled=0', LIVE_APP.'/artisan', $command]);

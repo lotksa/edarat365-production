@@ -182,7 +182,7 @@ final class MeetingFollowupController extends Controller
             }
         }
         Setting::setByKey('followup_settings', $data);
-        ActivityLog::record('settings', Setting::where('key', 'followup_settings')->value('id'), 'updated', 'تحديث إعدادات متابعة الاجتماعات');
+        ActivityLog::record('settings', Setting::where('key', Setting::storageKey('followup_settings'))->value('id'), 'updated', 'تحديث إعدادات متابعة الاجتماعات');
 
         return response()->json(['data' => $service->settings(), 'message' => 'تم حفظ إعدادات المتابعة']);
     }

@@ -15,7 +15,36 @@ final class UseAssociationWorkspace
     public function handle(Request $request, Closure $next): Response
     {
         $context = app(AssociationContext::class);
+        $section = $request->header('X-Workspace-Section', AssociationContext::OWNERS);
+        abort_unless(in_array($section, [AssociationContext::OWNERS, AssociationContext::ENDOWMENTS], true), 400);
+        $context->section = $section;
         $context->id = null;
+        try {
+            $response = $this->dispatch($request, $next, $context);
+            if ($response instanceof StreamedResponse) {
+                $callback = $response->getCallback();
+                $selected = $context->id;
+                $response->setCallback(function () use ($callback, $context, $section, $selected) {
+                    $context->section = $section;
+                    $context->id = $selected;
+                    try {
+                        $callback();
+                    } finally {
+                        $context->section = null;
+                        $context->id = null;
+                    }
+                });
+            }
+
+            return $response;
+        } finally {
+            $context->section = null;
+            $context->id = null;
+        }
+    }
+
+    private function dispatch(Request $request, Closure $next, AssociationContext $context): Response
+    {
         $path = preg_replace('#^api/v1/?#', '', $request->path());
         $root = explode('/', $path)[0];
 
@@ -27,9 +56,12 @@ final class UseAssociationWorkspace
             || preg_match('#^(export|import)/associations(?:/template)?$#', $path);
         $gatewayPresidentLookup = $root === 'association-managers' && ! $request->header('X-Association-Id')
             && $request->isMethod('GET') && $request->query('all') === 'true'
-            && ($request->user()->hasPermission('associations.create') || $request->user()->hasPermission('associations.update'));
+            && ($request->user()->isSuperAdmin() || $request->user()->hasPermission('associations.create') || $request->user()->hasPermission('associations.update'));
 
         if ($global || $gatewayPresidentLookup || ($gateway && ! $request->header('X-Association-Id'))) {
+            if ($context->isEndowments() && $root === 'associations') {
+                app(WorkspaceWrites::class)->validateRequest($request, $root);
+            }
             return $next($request);
         }
 
@@ -38,7 +70,7 @@ final class UseAssociationWorkspace
             $id = $matches[1]; // Existing association bookmarks have an unambiguous context.
         }
         if (! is_scalar($id) || ! preg_match('/^[1-9]\d*$/', (string) $id)) {
-            return response()->json(['message' => 'اختر الجمعية أولاً', 'code' => 'association_required'], 409);
+            return response()->json(['message' => $context->isEndowments() ? 'اختر الوقف أولاً' : 'اختر الجمعية أولاً', 'code' => 'association_required'], 409);
         }
         $association = Association::findOrFail((int) $id);
         // Existing RBAC is authoritative; a header selects a workspace and never
@@ -48,38 +80,21 @@ final class UseAssociationWorkspace
             $owner = $request->user()->ownerProfile;
             $owns = $owner && ($owner->properties()->where('association_id', $association->id)->exists()
                 || $owner->units()->whereHas('property', fn ($q) => $q->where('association_id', $association->id))->exists());
-            abort_unless($owns, 403, 'ليس لديك صلاحية الدخول إلى هذه الجمعية');
+            abort_unless($owns, 403, $context->isEndowments() ? 'ليس لديك صلاحية الدخول إلى هذا الوقف' : 'ليس لديك صلاحية الدخول إلى هذه الجمعية');
         }
 
         $context->id = (int) $association->id;
-        try {
-            if (preg_match('#^associations/(\d+)(?:/|$)#', $path, $matches)) {
-                abort_unless((int) $matches[1] === $context->id, 404);
-            }
-            app(WorkspaceWrites::class)->validateRequest($request, $root);
-            if (! $request->isMethod('GET') && ! $request->isMethod('HEAD') && in_array($root, [
-                'properties', 'contracts', 'invoices', 'meetings', 'votes', 'facilities',
-                'maintenance', 'maintenance-requests', 'legal-cases', 'vehicles', 'parking-spots', 'transactions',
-            ], true)) {
-                $request->merge(['association_id' => $context->id]);
-            }
-            $response = $next($request);
-            if ($response instanceof StreamedResponse) {
-                $callback = $response->getCallback();
-                $selected = $context->id;
-                $response->setCallback(function () use ($callback, $context, $selected) {
-                    $context->id = $selected;
-                    try {
-                        $callback();
-                    } finally {
-                        $context->id = null;
-                    }
-                });
-            }
-
-            return $response;
-        } finally {
-            $context->id = null; // Required for long-lived workers and test clients.
+        if (preg_match('#^associations/(\d+)(?:/|$)#', $path, $matches)) {
+            abort_unless((int) $matches[1] === $context->id, 404);
         }
+        app(WorkspaceWrites::class)->validateRequest($request, $root);
+        if (! $request->isMethod('GET') && ! $request->isMethod('HEAD') && in_array($root, [
+            'properties', 'contracts', 'invoices', 'meetings', 'votes', 'facilities',
+            'maintenance', 'maintenance-requests', 'legal-cases', 'vehicles', 'parking-spots', 'transactions',
+        ], true)) {
+            $request->merge(['association_id' => $context->id]);
+        }
+
+        return $next($request);
     }
 }

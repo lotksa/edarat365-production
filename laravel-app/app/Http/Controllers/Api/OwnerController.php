@@ -98,8 +98,11 @@ class OwnerController extends Controller
         $property = Property::findOrFail($data['property_id']);
         // Exact-identity linking, never a global people search. Only the pivot
         // is added; the shared profile and existing ownerships are unchanged.
-        $owner = Owner::withoutGlobalScope(\App\Scopes\AssociationScope::class)
-            ->where('national_id_hash', Owner::blindHash($data['national_id']))->first();
+        $context = app(\App\Services\AssociationContext::class);
+        $scope = app(\App\Scopes\AssociationScope::class);
+        $query = Owner::withoutGlobalScope($scope::class)->where('national_id_hash', Owner::blindHash($data['national_id']));
+        $scope->constrainSection($query->getQuery(), 'owners', $context->section, $context->id);
+        $owner = $query->first();
         if (!$owner) {
             return response()->json(['message' => 'لم نجد حساب مالك بهذه الهوية؛ يمكنك إنشاء مالك جديد'], 422);
         }

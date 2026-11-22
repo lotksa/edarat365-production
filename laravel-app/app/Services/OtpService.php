@@ -17,6 +17,8 @@ class OtpService
     public const CHANNEL_PHONE = 'phone';
 
     public const PURPOSE_LOGIN = 'login';
+    public const PURPOSE_OWNER_LOGIN = 'owner_login';
+    public const PURPOSE_ENDOWMENT_LOGIN = 'endowment_login';
     public const PURPOSE_PASSWORD_RESET = 'password_reset';
 
     /** Max OTP verification attempts before invalidating the code. */
@@ -111,8 +113,9 @@ class OtpService
 
     public function send(LoginOtp $otp, ?string $userName = null): array
     {
-        $templates = Setting::getByKey('mail_templates', $this->defaultMailTemplates());
-        $smsTemplates = Setting::getByKey('sms_templates', $this->defaultSmsTemplates());
+        $section = $otp->purpose === self::PURPOSE_ENDOWMENT_LOGIN ? AssociationContext::ENDOWMENTS : null;
+        $templates = Setting::getByKey('mail_templates', $this->defaultMailTemplates(), $section);
+        $smsTemplates = Setting::getByKey('sms_templates', $this->defaultSmsTemplates(), $section);
 
         $minutes = max(1, (int) round(now()->diffInSeconds(Carbon::parse($otp->expires_at), false) / 60)) ?: 10;
 
@@ -128,7 +131,7 @@ class OtpService
         if ($otp->channel === self::CHANNEL_EMAIL) {
             $key = $otp->purpose === self::PURPOSE_PASSWORD_RESET ? 'password_reset' : 'verification';
             $tpl = $templates[$key] ?? $this->defaultMailTemplates()[$key];
-            $branding = Setting::getByKey('mail_branding', $this->defaultMailBranding());
+            $branding = Setting::getByKey('mail_branding', $this->defaultMailBranding(), $section);
             $branding = array_replace($this->defaultMailBranding(), is_array($branding) ? $branding : []);
 
             $codeVars = $vars;
@@ -141,7 +144,7 @@ class OtpService
             $innerBody = strtr($tpl['body'] ?? '', $codeVars);
             $body = $this->renderBrandedMail($innerBody, $branding);
 
-            $sent = $this->sendEmail($otp->identifier, $subject, $body);
+            $sent = $this->sendEmail($otp->identifier, $subject, $body, $section);
 
             return [
                 'channel' => 'email',
@@ -154,7 +157,7 @@ class OtpService
         $key = $otp->purpose === self::PURPOSE_PASSWORD_RESET ? 'password_reset' : 'verification';
         $tpl = $smsTemplates[$key] ?? $this->defaultSmsTemplates()[$key];
         $message = strtr($tpl['body'] ?? '', $vars);
-        $sent = $this->sendSms($otp->identifier, $message);
+        $sent = $this->sendSms($otp->identifier, $message, $section);
 
         return [
             'channel' => 'phone',
@@ -248,10 +251,10 @@ class OtpService
         ];
     }
 
-    private function sendEmail(string $to, string $subject, string $htmlBody): bool
+    private function sendEmail(string $to, string $subject, string $htmlBody, ?string $section): bool
     {
         try {
-            $mailSettings = Setting::getByKey('mail', []);
+            $mailSettings = Setting::getByKey('mail', [], $section);
             $this->configureMailRuntime($mailSettings);
 
             // SECURITY: strip CR/LF from headers to prevent email header
@@ -304,10 +307,10 @@ class OtpService
         }
     }
 
-    private function sendSms(string $to, string $message): bool
+    private function sendSms(string $to, string $message, ?string $section): bool
     {
         try {
-            $sms = Setting::getByKey('sms', []);
+            $sms = Setting::getByKey('sms', [], $section);
             if (empty($sms['provider']) || empty($sms['api_url']) || empty($sms['api_key'])) {
                 Log::info('SMS provider not configured; skipping send.', ['to_masked' => $this->maskIdentifier($to)]);
                 return false;

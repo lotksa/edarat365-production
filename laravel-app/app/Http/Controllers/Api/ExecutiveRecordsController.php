@@ -30,6 +30,9 @@ final class ExecutiveRecordsController extends Controller
         abort_unless($request->user()->isSuperAdmin() || $request->user()->hasPermission($permission), 403);
         $data = $request->validate(['ids' => ['required', 'array', 'min:1', 'max:100'], 'ids.*' => ['integer', 'distinct'],
             'association_id' => ['nullable', 'integer', 'exists:associations,id']]);
+        if (isset($data['association_id'])) {
+            Association::findOrFail($data['association_id']);
+        }
         $context = app(AssociationContext::class);
         $context->id = isset($data['association_id']) ? (int) $data['association_id'] : null;
         try {
@@ -77,6 +80,9 @@ final class ExecutiveRecordsController extends Controller
         $data = $request->validate(['q' => ['nullable', 'string', 'max:200'], 'status' => ['nullable', 'string', 'max:50'],
             'association_id' => ['nullable', 'integer', 'exists:associations,id'], 'per_page' => ['sometimes', 'integer', 'between:1,100'],
             'page' => ['sometimes', 'integer', 'min:1']]);
+        if (isset($data['association_id'])) {
+            Association::findOrFail($data['association_id']);
+        }
         $context = app(AssociationContext::class);
         $context->id = isset($data['association_id']) ? (int) $data['association_id'] : null;
         try {
